@@ -7,6 +7,7 @@ tqdm==4.66.0 # progress bar
 python-dotenv==1.0.0 # .env file support
 pydantic==2.7.* # data validation
 pydantic-settings==2.2.1 # env configs
+PyYAML==6.* # go2rtc config sync
 
 # rest api
 fastapi==0.111.0 # REST API framework
@@ -29,3 +30,4 @@ opencv-python-headless==4.9.* # image processing
 pillow==10.* # image processing
 numpy==1.26.* # numerical computing
 onnxruntime==1.17.* # ONNX runtime
+onnx==1.16.* # ONNX graph metadata

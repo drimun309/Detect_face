@@ -1,0 +1,101 @@
+services:
+  nginx:
+    image: nginx:alpine
+    container_name: detect-face-nginx
+    restart: unless-stopped
+    ports:
+      - "8081:80"
+    volumes:
+      - ./nginx.stack.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - frontend
+      - backend
+      - go2rtc
+    networks:
+      - detect-face-network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: detect-face-frontend
+    restart: unless-stopped
+    volumes:
+      - ./frontend:/usr/share/nginx/html:ro
+    networks:
+      - detect-face-network
+
+  backend:
+    build:
+      context: .
+      dockerfile: dockerfile.onnx.prod
+    container_name: detect-face-backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - API_HOST=0.0.0.0
+      - API_PORT=7030
+      - SERVER=uvicorn
+      - POSTGRES_HOST=vision-fr-postgres
+      - POSTGRES_PORT=7031
+      - GO2RTC_CONFIG_PATH=/config/go2rtc.yaml
+      - MEDIAMTX_URL=rtsp://mediamtx:8554
+      - ENABLE_ANNOTATED_STREAM=true
+      - STREAM_FPS=10
+      - STREAM_FRAME_INTERVAL=2
+    volumes:
+      - ./src:/app/src
+      - ./go2rtc:/config
+      - ./data/backend:/app/data
+    depends_on:
+      - vision-fr-postgres
+      - mediamtx
+    command: python src/main.py
+    networks:
+      - detect-face-network
+
+  vision-fr-postgres:
+    container_name: detect-face-postgres
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      - POSTGRES_PORT=7031
+      - POSTGRES_USER=didi
+      - POSTGRES_PASSWORD=didi123
+      - POSTGRES_DB=vision-fr
+    ports:
+      - "7032:7031"
+    volumes:
+      - ./assets/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./data/postgres:/var/lib/postgresql/data
+    command: -p 7031
+    networks:
+      - detect-face-network
+
+  mediamtx:
+    image: bluenviron/mediamtx:latest
+    container_name: detect-face-mediamtx
+    restart: unless-stopped
+    volumes:
+      - ./tools/mediamtx/mediamtx.yml:/mediamtx.yml:ro
+    networks:
+      - detect-face-network
+
+  go2rtc:
+    image: alexxit/go2rtc:latest
+    container_name: detect-face-go2rtc
+    restart: unless-stopped
+    volumes:
+      - ./go2rtc:/config
+    ports:
+      - "1985:1984"
+      - "8556:8555/udp"
+      - "8556:8555/tcp"
+    networks:
+      - detect-face-network
+
+networks:
+  detect-face-network:
+    name: detect-face-network
+    driver: bridge

@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Распознавание лиц</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <nav class="app-nav">
+        <div class="nav-tabs">
+          <button type="button" class="nav-tab active" data-tab="cameras" data-i18n="tabCameras">
+            Камеры
+          </button>
+          <button type="button" class="nav-tab" data-tab="enroll" data-i18n="tabEnroll">
+            Регистрация лиц
+          </button>
+          <button type="button" class="nav-tab" data-tab="settings" data-i18n="tabSettings">
+            Настройки
+          </button>
+        </div>
+        <div class="lang-switch">
+          <button type="button" class="lang-btn active" data-lang="ru">RU</button>
+          <button type="button" class="lang-btn" data-lang="en">EN</button>
+        </div>
+      </nav>
+
+      <main class="app-content">
+        <!-- Камеры -->
+        <div id="tab-cameras" class="tab-panel active">
+          <div class="page-wrap">
+            <section class="settings-section">
+              <h2 class="section-title" data-i18n="addCamera">Добавить камеру</h2>
+              <form id="camera-form" class="form-grid">
+                <div class="form-group">
+                  <label data-i18n="name">Имя <input name="name" required /></label>
+                </div>
+                <div class="form-group">
+                  <label data-i18n="ip">IP <input name="ip" required placeholder="192.168.1.10" /></label>
+                </div>
+                <div class="form-group">
+                  <label data-i18n="port"
+                    >Порт <input name="port" type="number" value="554" required
+                  /></label>
+                </div>
+                <div class="form-group">
+                  <label
+                    ><span data-i18n="protocol">Протокол</span>
+                    <select name="protocol">
+                      <option value="rtsp">rtsp</option>
+                    </select></label
+                  >
+                </div>
+                <div class="form-group">
+                  <label data-i18n="username">Логин <input name="username" /></label>
+                </div>
+                <div class="form-group">
+                  <label data-i18n="password"
+                    >Пароль <input name="password" type="password"
+                  /></label>
+                </div>
+                <div class="form-group form-group-full">
+                  <label data-i18n="path"
+                    >Путь RTSP
+                    <input name="path" value="/Streaming/Channels/101" required
+                  /></label>
+                </div>
+                <div class="form-group checkbox-group">
+                  <label class="checkbox-label">
+                    <input name="enabled" type="checkbox" checked />
+                    <span data-i18n="enabled">Включена</span>
+                  </label>
+                </div>
+                <div class="form-group form-group-full">
+                  <button type="submit" class="btn btn-primary" data-i18n="saveCamera">
+                    Сохранить камеру
+                  </button>
+                </div>
+              </form>
+            </section>
+
+            <section class="settings-section">
+              <div class="section-header">
+                <h2 class="section-title" data-i18n="cameras">Камеры</h2>
+                <div class="button-group">
+                  <button id="sync-btn" type="button" class="btn btn-secondary" data-i18n="syncGo2rtc">
+                    Синхр. go2rtc
+                  </button>
+                  <button
+                    id="reload-faces-btn"
+                    type="button"
+                    class="btn btn-secondary"
+                    data-i18n="reloadFacesDb"
+                  >
+                    Обновить БД лиц
+                  </button>
+                </div>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th data-i18n="id">ID</th>
+                      <th data-i18n="name">Имя</th>
+                      <th data-i18n="rtsp">RTSP</th>
+                      <th data-i18n="enabled">Вкл.</th>
+                      <th data-i18n="detection">Детекция</th>
+                      <th data-i18n="actions">Действия</th>
+                    </tr>
+                  </thead>
+                  <tbody id="camera-table"></tbody>
+                </table>
+              </div>
+            </section>
+
+            <section class="settings-section">
+              <div class="section-header">
+                <h2 class="section-title" data-i18n="liveStream">Прямой эфир</h2>
+                <button id="close-stream-btn" type="button" class="btn btn-secondary" data-i18n="stop">
+                  Стоп
+                </button>
+              </div>
+              <p id="stream-meta" class="help-text" data-i18n="streamHint"></p>
+              <div class="player-wrap">
+                <video id="stream-video" autoplay playsinline muted></video>
+              </div>
+              <p id="stream-state" class="stream-state">—</p>
+            </section>
+
+            <p id="status" class="global-status"></p>
+          </div>
+        </div>
+
+        <!-- Регистрация лиц -->
+        <div id="tab-enroll" class="tab-panel">
+          <div class="page-wrap">
+            <div class="page-header">
+              <h1 data-i18n="enrollTitle">Регистрация в базу</h1>
+              <p class="help-text" data-i18n="enrollHint"></p>
+            </div>
+
+            <form id="enroll-form">
+              <section class="settings-section">
+                <div class="form-group">
+                  <label data-i18n="personName">Имя человека</label>
+                  <input id="enroll-name" name="name" class="form-input" required />
+                </div>
+                <div class="button-group">
+                  <button type="button" id="enroll-add-photos" class="btn btn-secondary" data-i18n="addPhotos">
+                    Добавить фото
+                  </button>
+                  <button type="button" id="enroll-add-videos" class="btn btn-secondary" data-i18n="addVideos">
+                    Добавить видео
+                  </button>
+                  <button type="button" id="enroll-clear-files" class="btn btn-secondary" data-i18n="clearFiles">
+                    Очистить
+                  </button>
+                </div>
+                <input id="enroll-photo-input" type="file" accept="image/*" multiple hidden />
+                <input id="enroll-video-input" type="file" accept="video/*" multiple hidden />
+                <ul id="enroll-file-list" class="enroll-file-list"></ul>
+                <p id="enroll-file-count" class="help-text">0 файлов</p>
+
+                <div class="form-grid enroll-opts">
+                  <div class="form-group checkbox-group">
+                    <label class="checkbox-label">
+                      <input id="enroll-replace" name="replace" type="checkbox" checked />
+                      <span data-i18n="replaceOld">Заменить старые эмбеддинги</span>
+                    </label>
+                  </div>
+                  <div class="form-group">
+                    <label data-i18n="videoEvery">Кадр видео каждые</label>
+                    <input id="enroll-every" name="every" type="number" min="1" max="120" value="15" class="form-input" />
+                  </div>
+                  <div class="form-group">
+                    <label data-i18n="maxEmbeddings">Макс. эмбеддингов</label>
+                    <input id="enroll-max" name="max_embeddings" type="number" min="1" max="100" value="30" class="form-input" />
+                  </div>
+                </div>
+                <button type="submit" id="enroll-submit" class="btn btn-primary" data-i18n="enrollSubmit">
+                  Зарегистрировать
+                </button>
+              </section>
+
+              <section class="settings-section">
+                <h2 class="section-title" data-i18n="enrollLog">Журнал</h2>
+                <pre id="enroll-log" class="enroll-log"></pre>
+              </section>
+
+              <section class="settings-section">
+                <div class="section-header">
+                  <h2 class="section-title" data-i18n="enrolledPeople">В базе</h2>
+                  <span id="enroll-db-total" class="help-text"></span>
+                </div>
+                <div class="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th data-i18n="name">Имя</th>
+                        <th data-i18n="detection">Эмбеддинги</th>
+                        <th data-i18n="actions">Действия</th>
+                      </tr>
+                    </thead>
+                    <tbody id="enroll-people-table"></tbody>
+                  </table>
+                </div>
+              </section>
+            </form>
+          </div>
+        </div>
+
+        <!-- Настройки -->
+        <div id="tab-settings" class="tab-panel">
+          <div class="page-wrap settings-page">
+            <div class="page-header">
+              <h1 data-i18n="settingsTitle">Настройки</h1>
+              <p id="settings-enrolled" class="help-text"></p>
+            </div>
+
+            <form id="settings-form">
+              <section class="settings-section">
+                <h2 class="section-title" data-i18n="sectionDetection">Детекция лиц (YOLOX)</h2>
+                <div class="form-grid">
+                  <div class="form-group">
+                    <label for="fr_det_conf"
+                      ><span data-i18n="detConf">Уверенность детектора</span>
+                      <span id="det-conf-pct" class="confidence-display">25%</span></label
+                    >
+                    <input
+                      id="fr_det_conf"
+                      type="range"
+                      min="5"
+                      max="95"
+                      value="25"
+                      class="form-range"
+                    />
+                    <p class="help-text" data-i18n="detConfHelp"></p>
+                  </div>
+                  <div class="form-group">
+                    <label for="fr_det_nms" data-i18n="detNms">NMS</label>
+                    <input
+                      id="fr_det_nms"
+                      name="fr_det_nms"
+                      type="number"
+                      min="0.1"
+                      max="1"
+                      step="0.05"
+                      value="0.45"
+                      class="form-input"
+                    />
+                    <p class="help-text" data-i18n="detNmsHelp"></p>
+                  </div>
+                  <div class="form-group">
+                    <label for="min_det_score" data-i18n="minDetScore">Мин. score</label>
+                    <input
+                      id="min_det_score"
+                      name="min_det_score"
+                      type="number"
+                      min="0.1"
+                      max="1"
+                      step="0.05"
+                      value="0.5"
+                      class="form-input"
+                    />
+                    <p class="help-text" data-i18n="minDetScoreHelp"></p>
+                  </div>
+                </div>
+              </section>
+
+              <section class="settings-section">
+                <h2 class="section-title" data-i18n="sectionRecognition">Распознавание (PostgreSQL)</h2>
+                <div class="form-grid">
+                  <div class="form-group">
+                    <label for="fr_distance"
+                      ><span data-i18n="frDistance">Порог расстояния</span>
+                      <span id="dist-val" class="confidence-display">0.5</span></label
+                    >
+                    <input
+                      id="fr_distance"
+                      type="range"
+                      min="0.2"
+                      max="1.0"
+                      step="0.05"
+                      value="0.5"
+                      class="form-range"
+                    />
+                    <p class="help-text" data-i18n="frDistanceHelp"></p>
+                  </div>
+                  <div class="form-group">
+                    <label for="embedding_refresh_sec" data-i18n="embeddingRefresh">Обновление БД</label>
+                    <input
+                      id="embedding_refresh_sec"
+                      name="embedding_refresh_sec"
+                      type="number"
+                      min="5"
+                      max="600"
+                      value="30"
+                      class="form-input"
+                    />
+                    <p class="help-text" data-i18n="embeddingRefreshHelp"></p>
+                  </div>
+                </div>
+              </section>
+
+              <section class="settings-section">
+                <h2 class="section-title" data-i18n="sectionStream">Поток и производительность</h2>
+                <div class="form-grid">
+                  <div class="form-group">
+                    <label for="stream_frame_interval" data-i18n="frameInterval">Каждый N-й кадр</label>
+                    <select id="stream_frame_interval" name="stream_frame_interval" class="form-select">
+                      <option value="1">1</option>
+                      <option value="2" selected>2</option>
+                      <option value="3">3</option>
+                      <option value="4">4</option>
+                      <option value="6">6</option>
+                      <option value="8">8</option>
+                      <option value="12">12</option>
+                    </select>
+                    <p class="help-text" data-i18n="frameIntervalHelp"></p>
+                  </div>
+                  <div class="form-group">
+                    <label for="stream_fps" data-i18n="streamFps">FPS</label>
+                    <input
+                      id="stream_fps"
+                      name="stream_fps"
+                      type="number"
+                      min="1"
+                      max="30"
+                      value="10"
+                      class="form-input"
+                    />
+                  </div>
+                  <div class="form-group">
+                    <label for="stream_resolution" data-i18n="streamResolution">Разрешение</label>
+                    <select id="stream_resolution" name="stream_resolution" class="form-select">
+                      <option value="1280x720" data-i18n="res720">1280×720</option>
+                      <option value="960x540" data-i18n="res540">960×540</option>
+                      <option value="640x360" data-i18n="res360">640×360</option>
+                    </select>
+                    <p class="help-text" data-i18n="resHint"></p>
+                  </div>
+                </div>
+              </section>
+
+              <section class="settings-section">
+                <h2 class="section-title" data-i18n="sectionDisplay">Отображение</h2>
+                <div class="form-group checkbox-group">
+                  <label class="checkbox-label">
+                    <input
+                      id="stream_show_unknown_distance"
+                      name="stream_show_unknown_distance"
+                      type="checkbox"
+                    />
+                    <span data-i18n="showUnknownDist">Расстояние для незнакомых</span>
+                  </label>
+                </div>
+              </section>
+
+              <div class="settings-footer">
+                <div id="settings-save-msg" class="save-message"></div>
+                <button id="settings-save-btn" type="submit" class="btn btn-save" data-i18n="saveSettings">
+                  Сохранить настройки
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <script src="/app.js?v=10" charset="UTF-8"></script>
+  </body>
+</html>

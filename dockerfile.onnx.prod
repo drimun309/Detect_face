@@ -5,7 +5,7 @@ FROM python:3.10-slim
 # install debian dependencies
 RUN DEBIAN_FRONTEND=noninteractive \
     apt-get update && apt-get install -y --no-install-recommends \
-    curl wget \
+    curl wget ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 # install python dependencies

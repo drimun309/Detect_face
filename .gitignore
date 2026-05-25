@@ -166,3 +166,6 @@ tmp/
 data/
 logs/
 *.onnx
+
+# runtime config (камеры, пароли RTSP)
+go2rtc/go2rtc.yaml

@@ -5,6 +5,7 @@ import rootutils
 ROOT = rootutils.autosetup()
 
 from pgvector.psycopg2 import register_vector
+from sqlalchemy import event
 from sqlmodel import Session, SQLModel, create_engine, text
 
 from src.utils.logger import get_logger
@@ -32,6 +33,11 @@ class PgSyncDb:
             url=self.url,
             echo=False,
         )
+
+        @event.listens_for(self.engine, "connect")
+        def _register_pgvector(dbapi_connection, _connection_record) -> None:
+            register_vector(dbapi_connection)
+
         self.session = Session(self.engine)
 
         # test connection

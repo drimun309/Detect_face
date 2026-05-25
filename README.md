@@ -43,35 +43,18 @@ git clone https://github.com/ruhyadi/vision-fr
 cd vision-fr
 ```
 
-### Production
+### Stack (камеры, веб-UI, стримы)
 
-To run the Face Recognition API in production, you can use the provided Docker image. You can pull the image from Docker Hub and run it directly. The details are as follows:
-
-```bash
-docker pull ruhyadi/vision-fr:latest
-```
-
-We provide a `docker-compose.onnx.prod.yaml` file to run the API with PostgreSQL. You can run the following command to start the services:
+Скопируйте `.env.example` в `.env`, `go2rtc/go2rtc.example.yaml` → `go2rtc/go2rtc.yaml`, положите ONNX-модели в `assets/` (см. `.env.example`). Запуск:
 
 ```bash
-docker compose -f docker-compose.onnx.prod.yaml up -d
+docker compose -f docker-compose.stack.yaml up -d --build
 ```
 
-The swagger documentation will be available at `http://localhost:7030`.
+- Веб-интерфейс: `http://localhost:8081`
+- Swagger API: `http://localhost:8081/api/` (через nginx → backend)
 
-### Development
-
-We encourage you to use [devcontainer](https://code.visualstudio.com/docs/devcontainers/containers) for development. Please make sure you have installed [Visual Studio Code](https://code.visualstudio.com/) and [Remote - Containers](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers) extension.
-
-We provide a `devcontainer/onnx/devcontainer.json` file to build the ONNX development container.
-
-Before you start devcontainer, you need to start the PostgreSQL service. You can run the following command to start the PostgreSQL service:
-
-```bash
-docker compose -f docker-compose.devel.db.yaml up -d
-```
-
-Next, you can press `Ctrl+Shift+P` to open the command palette. Then, type and select `Remote-Containers: Reopen in Container`. The development container will be built and you can start developing.
+Опционально модели **buffalo_l** (SCRFD + ArcFace R50): `run_download_buffalo.bat` или `python scripts/download_buffalo_l.py`, затем в `.env` укажите пути `assets/buffalo_l/det_10g.onnx` и `assets/buffalo_l/w600k_r50.onnx`.
 
 ## API Endpoints
 

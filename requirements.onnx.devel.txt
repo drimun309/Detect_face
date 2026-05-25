@@ -1,5 +1,0 @@
-# usage: pip install -r requirements.onnx.devel.txt
-
-# prod
--r requirements.onnx.prod.txt
-pytest==8.* # testing

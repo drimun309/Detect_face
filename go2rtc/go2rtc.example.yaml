@@ -1,0 +1,19 @@
+# Скопируйте в go2rtc.yaml и настройте камеры (файл go2rtc.yaml в .gitignore).
+streams: {}
+
+api:
+  listen: ":1984"
+  origin: "*"
+
+webrtc:
+  listen: ":8555/tcp"
+  candidates:
+    - 127.0.0.1:8556
+    - stun:stun.l.google.com:19302
+
+rtsp:
+  listen: ":8554"
+
+log:
+  level: info
+  format: text

@@ -9,6 +9,7 @@ from typing import List
 import numpy as np
 
 from src.engine.arcface_onnx_engine import ArcfaceOnnxEngine
+from src.engine.scrfd_onnx_engine import ScrfdOnnxEngine
 from src.engine.yolo_onnx_engine import YoloxOnnxEngine
 from src.schema.fr_schema import FrResultSchema
 from src.schema.yolo_schema import YoloResultSchema
@@ -33,17 +34,27 @@ class FrOnnxEngine:
         self.det_max_end2end = det_max_end2end
         self.provider = provider
 
-    def setup(self) -> None:
-        """Setup face recognition ONNX engine."""
-        log.info(f"Setup face recognition ONNX engine")
-
-        # setup face detection engine
-        self.det_engine = YoloxOnnxEngine(
+    def _create_det_engine(self):
+        path = self.det_engine_path.lower()
+        if "det_10g" in path or "scrfd" in path:
+            log.info("Using SCRFD detector (buffalo_l)")
+            return ScrfdOnnxEngine(
+                engine_path=self.det_engine_path,
+                provider=self.provider,
+            )
+        log.info("Using YOLOX detector")
+        return YoloxOnnxEngine(
             engine_path=self.det_engine_path,
             categories=["face"],
             provider=self.provider,
             max_det_end2end=self.det_max_end2end,
         )
+
+    def setup(self) -> None:
+        """Setup face recognition ONNX engine."""
+        log.info(f"Setup face recognition ONNX engine")
+
+        self.det_engine = self._create_det_engine()
         self.det_engine.setup()
 
         # setup face recognition engine
@@ -70,11 +81,13 @@ class FrOnnxEngine:
                 continue
 
             embds = self.get_embds(faces)
+            if isinstance(embds, np.ndarray):
+                embds = [embds[i] for i in range(len(faces))]
             result = FrResultSchema(
                 boxes=dets.boxes,
                 scores=dets.scores,
                 categories=dets.categories,
-                embeddings=embds,
+                embeddings=[e.tolist() for e in embds],
             )
 
             results.append(result)

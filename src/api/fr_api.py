@@ -14,6 +14,7 @@ from src.api.base_api import BaseApi
 from src.engine.fr_onnx_engine import FrOnnxEngine
 from src.schema.configs import Configs
 from src.schema.fr_schema import FacesFrSqlSchema, ReadFacesFrSchema
+from src.services.face_embedding_store import get_face_embedding_store
 from src.utils.logger import get_logger
 
 log = get_logger()
@@ -22,12 +23,15 @@ log = get_logger()
 class FrApi(BaseApi):
     """Face recognition API router."""
 
-    def __init__(self, cfg: Configs) -> None:
+    def __init__(self, cfg: Configs, engine: FrOnnxEngine | None = None) -> None:
         """Initialize the face recognition API router."""
         super().__init__(cfg)
         self.router = APIRouter()
 
-        self.setup_engine()
+        if engine is not None:
+            self.engine = engine
+        else:
+            self.setup_engine()
         self.setup()
 
     def setup_engine(self) -> None:
@@ -114,6 +118,10 @@ class FrApi(BaseApi):
 
             log.log(21, f"Face registered with id: {face.id}")
 
+            store = get_face_embedding_store()
+            if store:
+                store.reload()
+
             return ReadFacesFrSchema(**face.model_dump(), box=faces.boxes[0])
 
         @self.router.post(
@@ -192,4 +200,8 @@ class FrApi(BaseApi):
             self.pg.session.commit()
 
             log.log(21, f"Face deleted with id: {id}")
+
+            store = get_face_embedding_store()
+            if store:
+                store.reload()
 

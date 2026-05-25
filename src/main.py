@@ -4,10 +4,25 @@ import rootutils
 
 ROOT = rootutils.autosetup()
 
+from contextlib import asynccontextmanager
+
 from src.schema.configs import Configs, cfg
 from src.utils.logger import get_logger
 
 log = get_logger()
+
+
+def create_lifespan(app_cfg: Configs, camera_store):
+    @asynccontextmanager
+    async def lifespan(app):
+        from src.services.stream_lifecycle import schedule_auto_start
+        from src.streaming.stream_manager import shutdown_stream_manager
+
+        await schedule_auto_start(app_cfg, camera_store)
+        yield
+        shutdown_stream_manager()
+
+    return lifespan
 
 
 def main_api(cfg: Configs) -> None:
@@ -15,27 +30,52 @@ def main_api(cfg: Configs) -> None:
     from fastapi import FastAPI
 
     from src.api.base_api import BaseApi
+    from src.api.camera_api import CameraApi
     from src.api.fr_api import FrApi
     from src.api.server import GunicornServer, UvicornServer
+    from src.api.enroll_api import EnrollApi
+    from src.api.settings_api import SettingsApi
+    from src.api.stream_api import StreamApi
+    from src.services.camera_store import CameraStore
+    from src.services.settings_store import SettingsStore
+    from src.streaming.stream_manager import init_stream_manager
 
     log.info(f"Starting API server on {cfg.API_HOST}:{cfg.API_PORT}")
 
-    app = FastAPI(
-        title="Face Recognition API",
-        description="API for face recognition",
-        version="1.0.0",
-        docs_url="/",
+    camera_store = CameraStore()
+    settings_store = SettingsStore(cfg.DETECTION_SETTINGS_PATH, cfg)
+    stream_manager = init_stream_manager(cfg, camera_store=camera_store)
+    stream_manager.apply_detection_settings(settings_store.get())
+    camera_api = CameraApi(
+        go2rtc_config_path=cfg.GO2RTC_CONFIG_PATH,
+        mediamtx_url=cfg.MEDIAMTX_URL,
     )
 
-    # base api
+    app = FastAPI(
+        title="Face Recognition API",
+        description="API for face recognition and camera streaming",
+        version="1.0.0",
+        docs_url="/",
+        lifespan=create_lifespan(cfg, camera_store),
+    )
+
     base_api = BaseApi(cfg)
     app.include_router(base_api.router)
 
-    # fr api
-    fr_api = FrApi(cfg)
+    fr_api = FrApi(cfg, engine=stream_manager.engine)
     app.include_router(fr_api.router, prefix="/api/v1/engine", tags=["face-recognition"])
 
-    # server
+    app.include_router(camera_api.router, prefix="/api/v1", tags=["cameras"])
+
+    stream_api = StreamApi(camera_store)
+    app.include_router(stream_api.router, prefix="/api/v1", tags=["streams"])
+
+    settings_api = SettingsApi(settings_store)
+    app.include_router(settings_api.router, prefix="/api/v1", tags=["settings"])
+
+    enroll_api = EnrollApi(cfg, settings_store)
+    app.include_router(enroll_api.router, prefix="/api/v1", tags=["enrollment"])
+
     if cfg.SERVER == "gunicorn":
         server = GunicornServer(
             app=app,
@@ -57,6 +97,4 @@ def main_api(cfg: Configs) -> None:
 
 
 if __name__ == "__main__":
-    """Main function."""
-
     main_api(cfg)
