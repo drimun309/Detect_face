@@ -46,6 +46,7 @@ services:
       - STREAM_FRAME_INTERVAL=2
     volumes:
       - ./src:/app/src
+      - ./assets:/app/assets:ro
       - ./go2rtc:/config
       - ./data/backend:/app/data
     depends_on:

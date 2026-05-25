@@ -45,7 +45,11 @@ cd vision-fr
 
 ### Stack (камеры, веб-UI, стримы)
 
-Скопируйте `.env.example` в `.env`, `go2rtc/go2rtc.example.yaml` → `go2rtc/go2rtc.yaml`, положите ONNX-модели в `assets/` (см. `.env.example`). Запуск:
+Скопируйте `.env.example` в `.env`, `go2rtc/go2rtc.example.yaml` → `go2rtc/go2rtc.yaml`.
+
+**Модели:** `assets/yoloxs_face.onnx` и `assets/w600k_mbf.onnx` — в репозитории. **buffalo_l** (опционально, тяжёлые) — `py -3.12 scripts/download_models.py` или `run_download_models.bat`.
+
+Запуск:
 
 ```bash
 docker compose -f docker-compose.stack.yaml up -d --build

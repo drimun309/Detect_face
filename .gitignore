@@ -165,7 +165,10 @@ cython_debug/
 tmp/
 data/
 logs/
+# ONNX: в Git только базовые модели стека; buffalo_l — скачать скриптом
 *.onnx
+!assets/yoloxs_face.onnx
+!assets/w600k_mbf.onnx
 
 # runtime config (камеры, пароли RTSP)
 go2rtc/go2rtc.yaml
