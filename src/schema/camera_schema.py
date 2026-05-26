@@ -53,6 +53,7 @@ class CameraSchema(CameraBaseSchema):
     """Camera record returned by API."""
 
     id: int
+    roi_enabled: bool = False
 
 
 class CameraListSchema(BaseModel):

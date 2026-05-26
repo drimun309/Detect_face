@@ -15,7 +15,8 @@ import numpy as np
 
 from src.engine.fr_onnx_engine import FrOnnxEngine
 from src.services.face_embedding_store import FaceEmbeddingStore
-from src.utils.face_draw import draw_face_results
+from src.utils.face_draw import draw_face_results, draw_roi_polygons
+from src.utils.roi_helpers import point_in_any_polygon
 from src.utils.logger import get_logger
 
 if TYPE_CHECKING:
@@ -38,6 +39,8 @@ class FaceStreamerConfig:
     distance: float = 0.5
     min_det_score: float = 0.5
     show_unknown_distance: bool = False
+    roi_enabled: bool = False
+    roi_polygons: list[list[tuple[float, float]]] = field(default_factory=list)
 
 
 class FaceAnnotatedStreamer:
@@ -103,15 +106,59 @@ class FaceAnnotatedStreamer:
             min_det_score=self.config.min_det_score,
         )
         self.metrics["enrolled_faces"] = self.face_store.count
-        self._last_boxes = result.boxes
-        self._last_scores = result.scores
+        boxes, scores, names, distances = self._filter_by_roi(
+            result.boxes, result.scores, names, distances, frame_bgr.shape[1], frame_bgr.shape[0]
+        )
+        self._last_boxes = boxes
+        self._last_scores = scores
         self._last_names = names
         self._last_distances = distances
-        self.metrics["faces_count"] = len(result.boxes)
+        self.metrics["faces_count"] = len(boxes)
+
+    def _filter_by_roi(
+        self,
+        boxes: list[list[int]],
+        scores: list[float],
+        names: list[str | None],
+        distances: list[float | None],
+        width: int,
+        height: int,
+    ) -> tuple[list[list[int]], list[float], list[str | None], list[float | None]]:
+        if not self.config.roi_enabled or not self.config.roi_polygons:
+            return boxes, scores, names, distances
+        if width <= 0 or height <= 0:
+            return boxes, scores, names, distances
+
+        fb: list[list[int]] = []
+        fs: list[float] = []
+        fn: list[str | None] = []
+        fd: list[float | None] = []
+        for box, score, name, dist in zip(boxes, scores, names, distances):
+            cx = ((box[0] + box[2]) / 2.0) / width
+            cy = ((box[1] + box[3]) / 2.0) / height
+            if point_in_any_polygon((cx, cy), self.config.roi_polygons):
+                fb.append(box)
+                fs.append(score)
+                fn.append(name)
+                fd.append(dist)
+        return fb, fs, fn, fd
+
+    def update_roi_polygons(
+        self, enabled: bool, polygons: list[list[tuple[float, float]]]
+    ) -> None:
+        self.config.roi_enabled = enabled and len(polygons) > 0
+        self.config.roi_polygons = polygons if self.config.roi_enabled else []
+        self._last_boxes = []
+        self._last_scores = []
+        self._last_names = []
+        self._last_distances = []
 
     def _annotate(self, frame_bgr: np.ndarray) -> np.ndarray:
+        out = frame_bgr
+        if self.config.roi_enabled and self.config.roi_polygons:
+            out = draw_roi_polygons(out, self.config.roi_polygons)
         return draw_face_results(
-            frame_bgr,
+            out,
             self._last_boxes,
             self._last_scores,
             self._last_names,

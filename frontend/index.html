@@ -75,9 +75,22 @@
                 </button>
               </div>
               <p id="stream-meta" class="help-text" data-i18n="streamHint"></p>
+              <div class="stream-toolbar button-group">
+                <button type="button" id="roi-edit-btn" class="btn btn-secondary" data-i18n="roiEdit">
+                  Зона ROI
+                </button>
+                <button type="button" id="roi-clear-btn" class="btn btn-secondary" data-i18n="roiClear">
+                  Очистить ROI
+                </button>
+                <span id="roi-status" class="roi-status" data-i18n="roiOff">ROI выкл.</span>
+              </div>
               <div class="player-wrap">
                 <video id="stream-video" autoplay playsinline muted></video>
+                <canvas id="roi-canvas" class="roi-canvas hidden"></canvas>
               </div>
+              <p class="help-text" data-i18n="roiHint">
+                ЛКМ — точка полигона, ПКМ — завершить зону (мин. 3 точки). Детекция только внутри ROI.
+              </p>
               <p id="stream-state" class="stream-state">—</p>
             </section>
 
@@ -378,6 +391,7 @@
       </div>
     </div>
 
-    <script src="/app.js?v=12" charset="UTF-8"></script>
+    <script src="/roi.js" charset="UTF-8"></script>
+    <script src="/app.js?v=14" charset="UTF-8"></script>
   </body>
 </html>

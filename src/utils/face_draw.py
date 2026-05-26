@@ -59,6 +59,26 @@ def format_face_label(
     return f"лицо {score:.2f}"
 
 
+def draw_roi_polygons(
+    frame: np.ndarray,
+    polygons: list[list[tuple[float, float]]],
+    color: tuple[int, int, int] = (0, 255, 255),
+    thickness: int = 2,
+) -> np.ndarray:
+    if not polygons:
+        return frame
+    from src.utils.roi_helpers import scale_polygons_to_pixels
+
+    h, w = frame.shape[:2]
+    output = frame.copy()
+    for poly in scale_polygons_to_pixels(polygons, w, h):
+        if len(poly) < 3:
+            continue
+        pts = np.array(poly, dtype=np.int32).reshape((-1, 1, 2))
+        cv2.polylines(output, [pts], isClosed=True, color=color, thickness=thickness)
+    return output
+
+
 def draw_face_results(
     frame: np.ndarray,
     boxes: list[list[int]],

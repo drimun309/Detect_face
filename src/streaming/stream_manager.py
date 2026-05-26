@@ -93,6 +93,9 @@ class FaceStreamManager:
         return self.face_store.reload()
 
     def _streamer_config(self, camera: CameraSchema) -> FaceStreamerConfig:
+        roi_enabled, roi_polygons = False, []
+        if self.camera_store:
+            roi_enabled, roi_polygons = self.camera_store.get_roi_polygons(camera.id)
         return FaceStreamerConfig(
             camera_id=camera.id,
             camera_name=camera.name,
@@ -106,7 +109,19 @@ class FaceStreamManager:
             distance=self.cfg.FR_DISTANCE,
             min_det_score=self.cfg.FR_MIN_DET_SCORE,
             show_unknown_distance=self.cfg.STREAM_SHOW_UNKNOWN_DISTANCE,
+            roi_enabled=roi_enabled,
+            roi_polygons=roi_polygons,
         )
+
+    def update_roi_polygons(
+        self,
+        camera_id: int,
+        enabled: bool,
+        polygons: list[list[tuple[float, float]]],
+    ) -> None:
+        streamer = self.streamers.get(camera_id)
+        if streamer:
+            streamer.update_roi_polygons(enabled, polygons)
 
     def start_stream(self, camera: CameraSchema) -> bool:
         if not camera.enabled:

@@ -8,6 +8,7 @@ from src.schema.camera_schema import (
     CameraSchema,
     CameraUpdateSchema,
 )
+from src.schema.roi_schema import RoiResponse, RoiUpdate
 from src.services.camera_store import CameraStore
 from src.services.go2rtc_sync import sync_go2rtc_config
 from src.streaming.stream_manager import get_stream_manager
@@ -35,6 +36,17 @@ class CameraApi:
             config_path=self.go2rtc_config_path,
             mediamtx_url=self.mediamtx_url,
         )
+
+    def _apply_roi_to_stream(self, camera_id: int) -> None:
+        roi = self.store.get_roi(camera_id)
+        if not roi:
+            return
+        try:
+            manager = get_stream_manager()
+            polygons = [[(p.x, p.y) for p in poly.points] for poly in roi.polygons]
+            manager.update_roi_polygons(camera_id, roi.enabled, polygons)
+        except RuntimeError:
+            pass
 
     def _on_camera_changed(self, camera, *, deleted: bool = False) -> None:
         try:
@@ -93,3 +105,31 @@ class CameraApi:
         async def manual_sync() -> dict:
             self._sync_go2rtc()
             return {"ok": True, "go2rtc_reloaded": True}
+
+        @self.router.get("/cameras/{camera_id}/roi", response_model=RoiResponse)
+        async def get_roi(camera_id: int) -> RoiResponse:
+            roi = self.store.get_roi(camera_id)
+            if not roi:
+                raise HTTPException(status_code=404, detail="Camera not found")
+            return roi
+
+        @self.router.put("/cameras/{camera_id}/roi", response_model=RoiResponse)
+        async def update_roi(camera_id: int, payload: RoiUpdate) -> RoiResponse:
+            if payload.enabled and not payload.polygons:
+                raise HTTPException(
+                    status_code=400,
+                    detail="При включённом ROI нужен хотя бы один полигон (≥3 точек)",
+                )
+            roi = self.store.update_roi(camera_id, payload)
+            if not roi:
+                raise HTTPException(status_code=404, detail="Camera not found")
+            self._apply_roi_to_stream(camera_id)
+            return roi
+
+        @self.router.delete("/cameras/{camera_id}/roi", response_model=RoiResponse)
+        async def delete_roi(camera_id: int) -> RoiResponse:
+            roi = self.store.delete_roi(camera_id)
+            if not roi:
+                raise HTTPException(status_code=404, detail="Camera not found")
+            self._apply_roi_to_stream(camera_id)
+            return roi

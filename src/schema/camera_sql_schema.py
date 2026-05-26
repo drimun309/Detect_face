@@ -17,3 +17,5 @@ class CameraSqlSchema(SQLModel, table=True):
     protocol: str = Field(default="rtsp", max_length=16)
     path: str = Field(default="/Streaming/Channels/101", max_length=255)
     enabled: bool = Field(default=True)
+    roi_enabled: bool = Field(default=False)
+    rois: str = Field(default="[]")

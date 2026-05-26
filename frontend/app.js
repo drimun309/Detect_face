@@ -1,4 +1,4 @@
-/** i18n: ru (default) / en */
+﻿/** i18n: ru (default) / en */
 (function (global) {
   const STRINGS = {
     ru: {
@@ -79,6 +79,14 @@
       enrolledCount: "Записей в БД: {n}",
       autoplayBlocked:
         "Autoplay заблокирован. Нажмите «Смотреть с детекцией» ещё раз.",
+      roiEdit: "Зона ROI",
+      roiClear: "Очистить ROI",
+      roiOff: "ROI выкл.",
+      roiActive: "ROI активен",
+      roiSelecting: "Рисование ROI…",
+      roiHint: "ЛКМ — точка, ПКМ — завершить зону. Детекция только внутри ROI.",
+      roiNeedStream: "Сначала включите просмотр камеры",
+      roiClearConfirm: "Удалить все зоны ROI для этой камеры?",
       enrollTitle: "Регистрация в базу",
       enrollHint:
         "Загрузите фото и/или видео — эмбеддинги сохранятся в PostgreSQL.",
@@ -175,6 +183,14 @@
       savedErr: "Save failed",
       enrolledCount: "Faces in DB: {n}",
       autoplayBlocked: "Autoplay blocked. Click watch again.",
+      roiEdit: "ROI zone",
+      roiClear: "Clear ROI",
+      roiOff: "ROI off",
+      roiActive: "ROI active",
+      roiSelecting: "Drawing ROI…",
+      roiHint: "LMB — point, RMB — close polygon. Detection inside ROI only.",
+      roiNeedStream: "Start camera stream first",
+      roiClearConfirm: "Remove all ROI zones for this camera?",
       enrollTitle: "Enroll to database",
       enrollHint: "Upload photos and/or videos — embeddings are saved to PostgreSQL.",
       personName: "Person name",
@@ -806,12 +822,14 @@
     shouldReconnect = true;
     isConnected = false;
     streamMeta.textContent = cameraName + " · " + currentStreamName;
+    if (window.DF_setStreamCameraId) window.DF_setStreamCameraId(String(cameraId));
     setStatus(t("connecting", { name: currentStreamName }));
     connectWebRTC();
   }
 
   function closeStream() {
     cleanupPeer(false);
+    if (window.DF_setStreamCameraId) window.DF_setStreamCameraId(null);
     currentStreamName = "";
     streamMeta.textContent = t("streamHint");
     setStreamState("—");
@@ -960,6 +978,7 @@
   };
 
   if (window.DF_I18N) window.DF_I18N.applyI18n();
+  if (window.DF_initRoi) window.DF_initRoi();
   if (window.DF_initSettings) window.DF_initSettings(setStatus);
   loadCameras().catch(function (err) {
     setStatus(err.message, true);
