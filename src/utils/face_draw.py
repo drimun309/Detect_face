@@ -31,6 +31,14 @@ def measure_cyrillic_text(text: str, font_size: int = 20) -> tuple[int, int]:
     return x1 - x0, y1 - y0
 
 
+def name_match_confidence_percent(distance: float | None) -> int | None:
+    """Уверенность совпадения с БД: cosine similarity × 100 (distance = 1 − sim)."""
+    if distance is None:
+        return None
+    sim = max(0.0, min(1.0, 1.0 - float(distance)))
+    return int(round(sim * 100))
+
+
 def format_face_label(
     name: str | None,
     score: float,
@@ -38,8 +46,15 @@ def format_face_label(
     show_unknown_distance: bool,
 ) -> str:
     if name:
-        return name.strip().capitalize()
+        label = name.strip().capitalize()
+        pct = name_match_confidence_percent(distance)
+        if pct is not None:
+            label = f"{label} {pct}%"
+        return label
     if show_unknown_distance and distance is not None:
+        pct = name_match_confidence_percent(distance)
+        if pct is not None:
+            return f"лицо {score:.2f} ({pct}%)"
         return f"лицо {score:.2f} (расст. {distance:.2f})"
     return f"лицо {score:.2f}"
 

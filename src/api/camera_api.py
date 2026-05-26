@@ -16,9 +16,14 @@ from src.streaming.stream_manager import get_stream_manager
 class CameraApi:
     """REST endpoints for camera settings and go2rtc sync."""
 
-    def __init__(self, go2rtc_config_path: str, mediamtx_url: str) -> None:
+    def __init__(
+        self,
+        store: CameraStore,
+        go2rtc_config_path: str,
+        mediamtx_url: str,
+    ) -> None:
         self.router = APIRouter()
-        self.store = CameraStore()
+        self.store = store
         self.go2rtc_config_path = go2rtc_config_path
         self.mediamtx_url = mediamtx_url
         self.setup()
@@ -87,4 +92,4 @@ class CameraApi:
         @self.router.post("/cameras/sync-go2rtc", response_model=dict)
         async def manual_sync() -> dict:
             self._sync_go2rtc()
-            return {"ok": True}
+            return {"ok": True, "go2rtc_reloaded": True}

@@ -2,10 +2,15 @@
 
 import os
 from pathlib import Path
+from urllib.parse import quote
 
+import requests
 import yaml
 
 from src.schema.camera_schema import CameraSchema
+from src.utils.logger import get_logger
+
+log = get_logger()
 
 
 def _webrtc_candidates() -> list[str]:
@@ -32,11 +37,24 @@ def _default_config() -> dict:
 
 def _build_rtsp_url(camera: CameraSchema) -> str:
     if camera.username and camera.password:
+        user = quote(camera.username, safe="")
+        password = quote(camera.password, safe="")
         return (
-            f"{camera.protocol}://{camera.username}:{camera.password}@"
+            f"{camera.protocol}://{user}:{password}@"
             f"{camera.ip}:{camera.port}{camera.path}"
         )
     return f"{camera.protocol}://{camera.ip}:{camera.port}{camera.path}"
+
+
+def reload_go2rtc(api_base: str | None = None) -> None:
+    """go2rtc не подхватывает yaml без рестарта — нужен POST /api/restart."""
+    base = (api_base or os.environ.get("GO2RTC_API_URL", "http://go2rtc:1984")).rstrip("/")
+    try:
+        resp = requests.post(f"{base}/api/restart", timeout=15)
+        resp.raise_for_status()
+        log.info("go2rtc restarted after config sync")
+    except requests.RequestException as exc:
+        log.warning(f"go2rtc restart failed ({base}): {exc}")
 
 
 def sync_go2rtc_config(
@@ -78,3 +96,4 @@ def sync_go2rtc_config(
         yaml.dump(config, sort_keys=False, allow_unicode=True),
         encoding="utf-8",
     )
+    reload_go2rtc()

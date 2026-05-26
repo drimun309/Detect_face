@@ -36,17 +36,39 @@ def main_api(cfg: Configs) -> None:
     from src.api.enroll_api import EnrollApi
     from src.api.settings_api import SettingsApi
     from src.api.stream_api import StreamApi
+    from src.db.pg_db import PgSyncDb
+    from src.schema.camera_sql_schema import CameraSqlSchema  # noqa: F401 — register table
+    from src.schema.fr_schema import FacesFrSqlSchema  # noqa: F401
     from src.services.camera_store import CameraStore
     from src.services.settings_store import SettingsStore
     from src.streaming.stream_manager import init_stream_manager
 
     log.info(f"Starting API server on {cfg.API_HOST}:{cfg.API_PORT}")
 
-    camera_store = CameraStore()
+    pg = PgSyncDb(
+        host=cfg.POSTGRES_HOST,
+        port=cfg.POSTGRES_PORT,
+        user=cfg.POSTGRES_USER,
+        password=cfg.POSTGRES_PASSWORD,
+        db=cfg.POSTGRES_DB,
+    )
+    pg.setup()
+    pg.create_all()
+
+    camera_store = CameraStore(pg)
     settings_store = SettingsStore(cfg.DETECTION_SETTINGS_PATH, cfg)
     stream_manager = init_stream_manager(cfg, camera_store=camera_store)
     stream_manager.apply_detection_settings(settings_store.get())
+    from src.services.go2rtc_sync import sync_go2rtc_config
+
+    sync_go2rtc_config(
+        cameras=camera_store.list(),
+        config_path=cfg.GO2RTC_CONFIG_PATH,
+        mediamtx_url=cfg.MEDIAMTX_URL,
+    )
+
     camera_api = CameraApi(
+        camera_store,
         go2rtc_config_path=cfg.GO2RTC_CONFIG_PATH,
         mediamtx_url=cfg.MEDIAMTX_URL,
     )

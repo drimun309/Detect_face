@@ -411,6 +411,96 @@ th {
   font-size: 12px;
 }
 
+.camera-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+.hidden {
+  display: none !important;
+}
+
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.modal.hidden {
+  display: none !important;
+}
+
+.modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.72);
+}
+
+.modal-dialog {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 520px;
+  max-height: 90vh;
+  overflow-y: auto;
+  background: #1e1e1e;
+  border: 1px solid #444;
+  border-radius: 12px;
+  padding: 24px 28px 20px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+}
+
+.modal-title {
+  font-size: 1.25rem;
+  margin-bottom: 16px;
+  color: #4caf50;
+}
+
+.modal-close {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  width: 36px;
+  height: 36px;
+  border: none;
+  background: #333;
+  color: #ccc;
+  font-size: 24px;
+  line-height: 1;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.modal-close:hover {
+  background: #444;
+  color: #fff;
+}
+
+.modal .form-group label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 13px;
+  color: #aaa;
+}
+
+.modal .form-input {
+  width: 100%;
+}
+
+td.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 @media (max-width: 768px) {
   .app-nav {
     flex-direction: column;

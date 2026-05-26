@@ -1,4 +1,4 @@
-﻿/** i18n: ru (default) / en */
+/** i18n: ru (default) / en */
 (function (global) {
   const STRINGS = {
     ru: {
@@ -39,6 +39,9 @@
       connecting: "Подключение: {name}",
       streamStopped: "Поток остановлен",
       cameraSaved: "Камера сохранена",
+      cameraUpdated: "Камера обновлена",
+      cancelEdit: "Отмена",
+      editCamera: "Изменить",
       cameraDeleted: "Камера удалена",
       go2rtcSynced: "go2rtc синхронизирован",
       facesReloaded: "БД обновлена: {n} лиц",
@@ -135,6 +138,9 @@
       connecting: "Connecting: {name}",
       streamStopped: "Stream stopped",
       cameraSaved: "Camera saved",
+      cameraUpdated: "Camera updated",
+      cancelEdit: "Cancel",
+      editCamera: "Edit",
       cameraDeleted: "Camera deleted",
       go2rtcSynced: "go2rtc synced",
       facesReloaded: "DB reloaded: {n} faces",
@@ -455,6 +461,33 @@
   const form = document.getElementById("camera-form");
   const table = document.getElementById("camera-table");
   const statusEl = document.getElementById("status");
+  const cameraEditId = document.getElementById("camera-edit-id");
+  const cameraSubmitBtn = document.getElementById("camera-submit-btn");
+  const cameraCancelBtn = document.getElementById("camera-cancel-btn");
+  const cameraFormTitle = document.getElementById("camera-form-title");
+  const cameraFormMsg = document.getElementById("camera-form-msg");
+  const cameraModal = document.getElementById("camera-modal");
+  const cameraModalBackdrop = document.getElementById("camera-modal-backdrop");
+  const cameraModalClose = document.getElementById("camera-modal-close");
+  const addCameraBtn = document.getElementById("add-camera-btn");
+  let editingCameraId = null;
+
+  function openCameraModal() {
+    if (!cameraModal) return;
+    cameraModal.classList.remove("hidden");
+    cameraModal.setAttribute("aria-hidden", "false");
+    document.body.style.overflow = "hidden";
+    const first = form.querySelector('input[name="name"]');
+    if (first) setTimeout(function () { first.focus(); }, 50);
+  }
+
+  function closeCameraModal() {
+    if (!cameraModal) return;
+    cameraModal.classList.add("hidden");
+    cameraModal.setAttribute("aria-hidden", "true");
+    document.body.style.overflow = "";
+    resetCameraForm();
+  }
   const syncBtn = document.getElementById("sync-btn");
   const reloadFacesBtn = document.getElementById("reload-faces-btn");
   const streamVideo = document.getElementById("stream-video");
@@ -630,11 +663,75 @@
     };
   }
 
+  function parseApiError(text) {
+    try {
+      const data = JSON.parse(text);
+      const detail = data.detail;
+      if (typeof detail === "string") return detail;
+      if (Array.isArray(detail)) {
+        return detail.map(function (e) {
+          return e.msg || JSON.stringify(e);
+        }).join("; ");
+      }
+      return text;
+    } catch (_) {
+      return text || "HTTP error";
+    }
+  }
+
   async function request(url, options) {
     const res = await fetch(url, options);
-    if (!res.ok) throw new Error((await res.text()) || "HTTP " + res.status);
+    if (!res.ok) throw new Error(parseApiError(await res.text()) || "HTTP " + res.status);
     if (res.status === 204) return null;
     return res.json();
+  }
+
+  function cameraPayloadFromForm(fd) {
+    return {
+      name: String(fd.get("name") || "").trim(),
+      ip: String(fd.get("ip") || "").trim(),
+      port: Number(fd.get("port") || 554),
+      protocol: fd.get("protocol") || "rtsp",
+      username: (fd.get("username") && String(fd.get("username"))) || null,
+      password: (fd.get("password") && String(fd.get("password"))) || null,
+      path: String(fd.get("path") || "/Streaming/Channels/101").trim(),
+      enabled: fd.get("enabled") === "on",
+    };
+  }
+
+  function setCameraFormMode(editId) {
+    editingCameraId = editId || null;
+    if (cameraEditId) cameraEditId.value = editingCameraId ? String(editingCameraId) : "";
+    if (cameraFormTitle) {
+      cameraFormTitle.textContent = editingCameraId ? t("editCamera") + " #" + editingCameraId : t("addCamera");
+    }
+    if (cameraSubmitBtn) {
+      cameraSubmitBtn.textContent = editingCameraId ? t("saveCamera") : t("saveCamera");
+    }
+  }
+
+  function fillCameraForm(cam) {
+    form.name.value = cam.name;
+    form.ip.value = cam.ip;
+    form.port.value = cam.port;
+    form.protocol.value = cam.protocol || "rtsp";
+    form.username.value = cam.username || "";
+    form.password.value = "";
+    form.path.value = cam.path;
+    form.enabled.checked = !!cam.enabled;
+    setCameraFormMode(cam.id);
+    if (cameraFormMsg) cameraFormMsg.textContent = "";
+    openCameraModal();
+  }
+
+  function resetCameraForm() {
+    if (!form) return;
+    form.reset();
+    form.port.value = "554";
+    form.path.value = "/Streaming/Channels/101";
+    form.enabled.checked = true;
+    setCameraFormMode(null);
+    if (cameraFormMsg) cameraFormMsg.textContent = "";
   }
 
   async function loadCameras() {
@@ -658,35 +755,46 @@
         detCell = t("detOff") + " (DB: " + enrolled + ")";
       }
       const tr = document.createElement("tr");
-      tr.innerHTML =
-        "<td>" +
-        cam.id +
-        "</td><td>" +
-        cam.name +
-        "</td><td>" +
-        rtspUrl(cam) +
-        "</td><td>" +
-        (cam.enabled ? t("yes") : t("no")) +
-        "</td><td>" +
-        detCell +
-        '</td><td class="actions">' +
-        '<button type="button" data-id="' +
-        cam.id +
-        '" data-name="' +
-        cam.name +
-        '" class="watch-annot-btn btn btn-primary">' +
-        t("watchDetection") +
-        '</button><button type="button" data-id="' +
-        cam.id +
-        '" data-name="' +
-        cam.name +
-        '" class="watch-btn btn btn-secondary">' +
-        t("watchRaw") +
-        '</button><button type="button" data-id="' +
-        cam.id +
-        '" class="delete-btn btn btn-danger">' +
-        t("delete") +
-        "</button></td>";
+      const tdId = document.createElement("td");
+      tdId.textContent = cam.id;
+      const tdName = document.createElement("td");
+      tdName.textContent = cam.name;
+      const tdRtsp = document.createElement("td");
+      tdRtsp.textContent = rtspUrl(cam);
+      const tdEn = document.createElement("td");
+      tdEn.textContent = cam.enabled ? t("yes") : t("no");
+      const tdDet = document.createElement("td");
+      tdDet.textContent = detCell;
+      const tdAct = document.createElement("td");
+      tdAct.className = "actions";
+
+      function mkBtn(cls, label, attrs) {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = cls;
+        b.textContent = label;
+        Object.keys(attrs).forEach(function (k) {
+          b.setAttribute(k, attrs[k]);
+        });
+        return b;
+      }
+
+      const watchAnnot = mkBtn("watch-annot-btn btn btn-primary", t("watchDetection"), {
+        "data-id": String(cam.id),
+        "data-name": cam.name,
+      });
+      const watchRaw = mkBtn("watch-btn btn btn-secondary", t("watchRaw"), {
+        "data-id": String(cam.id),
+        "data-name": cam.name,
+      });
+      const editBtn = mkBtn("edit-btn btn btn-secondary", t("editCamera"), {
+        "data-id": String(cam.id),
+      });
+      const delBtn = mkBtn("delete-btn btn btn-danger", t("delete"), {
+        "data-id": String(cam.id),
+      });
+      tdAct.append(watchAnnot, watchRaw, editBtn, delBtn);
+      tr.append(tdId, tdName, tdRtsp, tdEn, tdDet, tdAct);
       table.appendChild(tr);
     });
   }
@@ -736,33 +844,72 @@
     });
   });
 
+  if (addCameraBtn) {
+    addCameraBtn.addEventListener("click", function () {
+      resetCameraForm();
+      openCameraModal();
+    });
+  }
+  if (cameraCancelBtn) cameraCancelBtn.addEventListener("click", closeCameraModal);
+  if (cameraModalClose) cameraModalClose.addEventListener("click", closeCameraModal);
+  if (cameraModalBackdrop) cameraModalBackdrop.addEventListener("click", closeCameraModal);
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && cameraModal && !cameraModal.classList.contains("hidden")) {
+      closeCameraModal();
+    }
+  });
+
   form.addEventListener("submit", async function (e) {
     e.preventDefault();
     const fd = new FormData(form);
+    const payload = cameraPayloadFromForm(fd);
+    if (editingCameraId && !fd.get("password")) delete payload.password;
+    if (!payload.name || !payload.ip) {
+      setStatus(t("saveCamera"), true);
+      return;
+    }
+    if (cameraSubmitBtn) cameraSubmitBtn.disabled = true;
+    if (cameraFormMsg) cameraFormMsg.textContent = t("saving");
     try {
-      await request(API + "/cameras", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: fd.get("name"),
-          ip: fd.get("ip"),
-          port: Number(fd.get("port") || 554),
-          protocol: fd.get("protocol"),
-          username: fd.get("username") || null,
-          password: fd.get("password") || null,
-          path: fd.get("path"),
-          enabled: fd.get("enabled") === "on",
-        }),
-      });
-      form.reset();
-      setStatus(t("cameraSaved"));
+      if (editingCameraId) {
+        await request(API + "/cameras/" + editingCameraId, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        setStatus(t("cameraUpdated"));
+        if (cameraFormMsg) cameraFormMsg.textContent = t("cameraUpdated");
+      } else {
+        await request(API + "/cameras", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        setStatus(t("cameraSaved"));
+        if (cameraFormMsg) cameraFormMsg.textContent = t("cameraSaved");
+      }
+      closeCameraModal();
       await loadCameras();
     } catch (err) {
       setStatus(err.message, true);
+      if (cameraFormMsg) cameraFormMsg.textContent = err.message;
+    } finally {
+      if (cameraSubmitBtn) cameraSubmitBtn.disabled = false;
     }
   });
 
   table.addEventListener("click", async function (e) {
+    const editBtn = e.target.closest(".edit-btn");
+    if (editBtn) {
+      const id = editBtn.getAttribute("data-id");
+      try {
+        const cam = await request(API + "/cameras/" + id);
+        fillCameraForm(cam);
+      } catch (err) {
+        setStatus(err.message, true);
+      }
+      return;
+    }
     const watchBtn = e.target.closest(".watch-btn");
     if (watchBtn) {
       openStream(watchBtn.getAttribute("data-id"), watchBtn.getAttribute("data-name") || "cam", false);
