@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import time
 from dataclasses import dataclass
@@ -76,12 +75,6 @@ class RoiTimerStore:
             log.warning(f"ROI timers table migration skipped: {exc}")
 
     @staticmethod
-    def make_roi_key(polygon: list[tuple[float, float]]) -> str:
-        stable = [[round(float(x), 6), round(float(y), 6)] for x, y in polygon]
-        data = json.dumps(stable, separators=(",", ":"), ensure_ascii=False)
-        return hashlib.sha1(data.encode("utf-8")).hexdigest()[:24]
-
-    @staticmethod
     def _polygon_to_json(polygon: list[tuple[float, float]]) -> str:
         return json.dumps(
             [[float(x), float(y)] for x, y in polygon],
@@ -142,19 +135,43 @@ class RoiTimerStore:
         camera_id: int,
         polygons: list[list[tuple[float, float]]],
     ) -> list[str]:
-        """Create rows for active ROIs and delete removed ROIs data."""
+        """Create/update rows for active ROIs and delete removed ROIs data.
+
+        ROI keys stay stable by roi_index, so point edits do not reset timers.
+        """
         now = time.time()
-        keys: list[str] = [self.make_roi_key(poly) for poly in polygons]
-        keys_set = set(keys)
         with self._lock:
             try:
                 rows = self.pg.session.exec(
                     text(
-                        "SELECT roi_key FROM roi_timers WHERE camera_id = :camera_id"
+                        "SELECT roi_key, roi_index FROM roi_timers "
+                        "WHERE camera_id = :camera_id ORDER BY roi_index"
                     ).bindparams(camera_id=camera_id)
                 ).all()
+                existing_by_index: dict[int, str] = {}
+                existing_keys: list[str] = []
+                max_suffix = 0
                 for row in rows:
-                    roi_key = row[0]
+                    roi_key = str(row[0])
+                    roi_index = int(row[1] or 0)
+                    existing_by_index[roi_index] = roi_key
+                    existing_keys.append(roi_key)
+                    if roi_key.startswith("roi"):
+                        try:
+                            max_suffix = max(max_suffix, int(roi_key[3:]))
+                        except ValueError:
+                            pass
+
+                keys: list[str] = []
+                for idx, _poly in enumerate(polygons, start=1):
+                    roi_key = existing_by_index.get(idx)
+                    if roi_key is None:
+                        max_suffix += 1
+                        roi_key = f"roi{max_suffix:03d}"
+                    keys.append(roi_key)
+
+                keys_set = set(keys)
+                for roi_key in existing_keys:
                     if roi_key not in keys_set:
                         self.pg.session.exec(
                             text(

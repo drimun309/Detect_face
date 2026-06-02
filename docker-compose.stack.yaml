@@ -45,6 +45,7 @@ services:
       - ENABLE_ANNOTATED_STREAM=true
       - STREAM_FPS=10
       - STREAM_FRAME_INTERVAL=2
+      - TZ=Asia/Tbilisi
       - LD_LIBRARY_PATH=/usr/local/lib:/usr/local/lib/python3.10/site-packages/nvidia/cublas/lib:/usr/local/lib/python3.10/site-packages/nvidia/cudnn/lib:/usr/local/lib/python3.10/site-packages/nvidia/curand/lib:/usr/local/lib/python3.10/site-packages/nvidia/nccl/lib:/usr/local/lib/python3.10/site-packages/nvidia/cufft/lib:/usr/local/lib/python3.10/site-packages/nvidia/cuda_runtime/lib
       - LD_LIBRARY_PATH=/usr/local/lib/python3.10/site-packages/nvidia/cublas/lib:/usr/local/lib/python3.10/site-packages/nvidia/cudnn/lib:/usr/local/lib/python3.10/site-packages/nvidia/nccl/lib
     volumes:

@@ -86,12 +86,29 @@ class RecordingApi:
             return {"success": success}
 
         @self.router.post("/recordings/{camera_id}/start")
-        async def start_recording(camera_id: int, camera_name: str, rtsp_url: str) -> dict:
+        async def start_recording(
+            camera_id: int,
+            camera_name: str,
+            rtsp_url: str,
+            manual: bool = True,
+        ) -> dict:
             service = get_recording_service()
             if not service:
                 raise HTTPException(status_code=404, detail="Recording service not initialized")
-            success = service.start_recording(camera_id, camera_name, rtsp_url)
-            return {"recording": success}
+            if not service.settings.enabled:
+                return {"recording": False, "error": "recording_disabled"}
+            if (
+                not manual
+                and service.settings.shift.enabled
+                and not service.is_shift_active()
+            ):
+                return {"recording": False, "error": "outside_shift"}
+            success = service.start_recording(
+                camera_id, camera_name, rtsp_url, manual=manual
+            )
+            if not success:
+                return {"recording": False, "error": "start_failed"}
+            return {"recording": service.is_recording(camera_id)}
 
         @self.router.post("/recordings/{camera_id}/stop")
         async def stop_recording(camera_id: int) -> dict:

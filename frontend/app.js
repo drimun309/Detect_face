@@ -80,6 +80,10 @@
       recToggle: "Запись: выкл.",
       recOn: "Запись: ВКЛ",
       recOff: "Запись: выкл.",
+      recErrDisabled: "Включите запись в настройках (Запись → Вкл)",
+      recErrShift: "Сейчас вне смены — запись недоступна",
+      recErrStart: "Не удалось запустить запись",
+      recNeedDetection: "Запись доступна только в режиме «Смотреть с детекцией»",
       detConf: "Уверенность детектора",
       detConfHelp:
         "Выше — меньше ложных лиц, но можно пропустить дальние. Рекомендуется 25–55%.",
@@ -114,7 +118,7 @@
       roiOff: "ROI выкл.",
       roiActive: "ROI активен",
       roiSelecting: "Рисование ROI…",
-      roiHint: "ЛКМ — точка, ПКМ — завершить зону. Детекция только внутри ROI.",
+      roiHint: "ЛКМ — точка/перетаскивание вершины, ПКМ — завершить зону. Детекция только внутри ROI.",
       roiNeedStream: "Сначала включите просмотр камеры",
       roiClearConfirm: "Удалить все зоны ROI для этой камеры?",
       enrollTitle: "Регистрация в базу",
@@ -217,6 +221,10 @@
       recToggle: "Rec: off",
       recOn: "Rec: ON",
       recOff: "Rec: off",
+      recErrDisabled: "Enable recording in Settings (Recording → On)",
+      recErrShift: "Outside shift hours — recording unavailable",
+      recErrStart: "Failed to start recording",
+      recNeedDetection: "Recording works only in “Watch with detection” mode",
       detConf: "Detector confidence",
       detConfHelp: "Higher = fewer false detections. Try 25–55%.",
       detNms: "NMS overlap",
@@ -248,7 +256,7 @@
       roiOff: "ROI off",
       roiActive: "ROI active",
       roiSelecting: "Drawing ROI…",
-      roiHint: "LMB — point, RMB — close polygon. Detection inside ROI only.",
+      roiHint: "LMB — add point/drag vertex, RMB — close polygon. Detection inside ROI only.",
       roiNeedStream: "Start camera stream first",
       roiClearConfirm: "Remove all ROI zones for this camera?",
       enrollTitle: "Enroll to database",
@@ -1072,28 +1080,51 @@
   const recToggleBtn = document.getElementById("rec-toggle-btn");
   if (recToggleBtn) {
     recToggleBtn.addEventListener("click", async function () {
-      if (!currentCameraId) return;
+      if (!currentCameraId) {
+        setStatus(t("roiNeedStream"), true);
+        return;
+      }
+      if (!currentUseAnnotated && !recordingActive) {
+        setStatus(t("recNeedDetection"), true);
+        return;
+      }
+      recToggleBtn.disabled = true;
       try {
         if (!recordingActive) {
-          const rtsp = currentUseAnnotated ? annotatedRtspUrl(currentCameraId) : annotatedRtspUrl(currentCameraId);
-          await request(
+          const rtsp = annotatedRtspUrl(currentCameraId);
+          const res = await request(
             API +
               "/recordings/" +
               currentCameraId +
               "/start?camera_name=" +
               encodeURIComponent(currentCameraName) +
               "&rtsp_url=" +
-              encodeURIComponent(rtsp),
+              encodeURIComponent(rtsp) +
+              "&manual=true",
             { method: "POST" }
           );
-          recordingActive = true;
+          if (!res || !res.recording) {
+            const errKey =
+              res && res.error === "recording_disabled"
+                ? "recErrDisabled"
+                : res && res.error === "outside_shift"
+                  ? "recErrShift"
+                  : "recErrStart";
+            setStatus(t(errKey), true);
+            recordingActive = false;
+          } else {
+            recordingActive = true;
+            setStatus(t("recOn"), false);
+          }
         } else {
           await request(API + "/recordings/" + currentCameraId + "/stop", { method: "POST" });
           recordingActive = false;
+          setStatus(t("recOff"), false);
         }
       } catch (err) {
         setStatus(err.message, true);
       } finally {
+        recToggleBtn.disabled = false;
         refreshRecordingUi().catch(function () {});
       }
     });
@@ -1151,6 +1182,11 @@
     const list = document.getElementById("rec-file-list");
     const video = document.getElementById("rec-video");
     const title = document.getElementById("rec-player-title");
+    const prevBtn = document.getElementById("rec-prev-btn");
+    const nextBtn = document.getElementById("rec-next-btn");
+
+    let currentFiles = [];
+    let currentIndex = -1;
 
     if (!camSelect || !dateSelect || !list) return;
 
@@ -1205,8 +1241,11 @@
       const files = await request(
         API + "/recordings/" + camId + "/" + encodeURIComponent(camName) + "/" + encodeURIComponent(date)
       );
+      currentFiles = files || [];
+      currentIndex = -1;
       if (!files.length) {
         list.innerHTML = "<p class=\"help-text\">(пусто)</p>";
+        updateNavButtons();
         return;
       }
       list.innerHTML = "";
@@ -1229,24 +1268,7 @@
         playBtn.className = "btn btn-primary";
         playBtn.textContent = t("play");
         playBtn.addEventListener("click", function () {
-          const url =
-            API +
-            "/recordings/" +
-            camId +
-            "/" +
-            encodeURIComponent(camName) +
-            "/" +
-            encodeURIComponent(date) +
-            "/" +
-            encodeURIComponent(f.filename) +
-            "/file";
-          if (title) title.textContent = camName + " · " + date + " · " + f.filename;
-          if (video) {
-            video.playbackRate = 1;
-            video.src = url;
-            video.load();
-          }
-          openModal();
+          openAtIndex(files.findIndex(function (x) { return x.filename === f.filename; }));
         });
         const delBtn = document.createElement("button");
         delBtn.type = "button";
@@ -1274,6 +1296,42 @@
         row.appendChild(right);
         list.appendChild(row);
       });
+      updateNavButtons();
+    }
+
+    function updateNavButtons() {
+      if (prevBtn) prevBtn.disabled = currentIndex <= 0;
+      if (nextBtn) nextBtn.disabled = currentIndex < 0 || currentIndex >= currentFiles.length - 1;
+    }
+
+    function openAtIndex(idx) {
+      if (!video) return;
+      const camId = camSelect.value;
+      const camName = camSelect.options[camSelect.selectedIndex]?.dataset?.name || "";
+      const date = dateSelect.value;
+      if (!camId || !camName || !date) return;
+      if (!Array.isArray(currentFiles) || !currentFiles.length) return;
+      if (idx < 0 || idx >= currentFiles.length) return;
+
+      currentIndex = idx;
+      const f = currentFiles[currentIndex];
+      const url =
+        API +
+        "/recordings/" +
+        camId +
+        "/" +
+        encodeURIComponent(camName) +
+        "/" +
+        encodeURIComponent(date) +
+        "/" +
+        encodeURIComponent(f.filename) +
+        "/file";
+      if (title) title.textContent = camName + " · " + date + " · " + f.filename;
+      video.playbackRate = 1;
+      video.src = url;
+      video.load();
+      openModal();
+      updateNavButtons();
     }
 
     camSelect.onchange = function () {
@@ -1298,6 +1356,19 @@
         if (video) video.playbackRate = sp;
       });
     });
+
+    if (prevBtn) {
+      prevBtn.addEventListener("click", function () {
+        if (currentIndex > 0) openAtIndex(currentIndex - 1);
+      });
+    }
+    if (nextBtn) {
+      nextBtn.addEventListener("click", function () {
+        if (currentIndex >= 0 && currentIndex < currentFiles.length - 1) {
+          openAtIndex(currentIndex + 1);
+        }
+      });
+    }
 
     loadCameras().then(loadDates).catch(function (e) {
       list.innerHTML = "<p class=\"help-text\">" + e.message + "</p>";

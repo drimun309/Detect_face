@@ -7,6 +7,7 @@
   let isSelecting = false;
   let completedPolygons = [];
   let currentPoints = [];
+  let dragState = null;
 
   const video = () => document.getElementById("stream-video");
   const canvas = () => document.getElementById("roi-canvas");
@@ -72,7 +73,7 @@
     if (!ctx) return;
     ctx.clearRect(0, 0, c.width, c.height);
 
-    function drawPoly(points, stroke, fill) {
+    function drawPoly(points, stroke, fill, activeVertexIdx) {
       if (points.length < 2) return;
       ctx.beginPath();
       ctx.moveTo(points[0].x * c.width, points[0].y * c.height);
@@ -95,14 +96,50 @@
         ctx.fillStyle = stroke;
         ctx.fill();
       });
+      if (
+        typeof activeVertexIdx === "number" &&
+        activeVertexIdx >= 0 &&
+        activeVertexIdx < points.length
+      ) {
+        const p = points[activeVertexIdx];
+        ctx.beginPath();
+        ctx.arc(p.x * c.width, p.y * c.height, 7, 0, Math.PI * 2);
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
     }
 
-    completedPolygons.forEach(function (poly) {
-      drawPoly(poly.points, "#4caf50", "rgba(76, 175, 80, 0.15)");
+    completedPolygons.forEach(function (poly, polyIdx) {
+      const activeIdx =
+        dragState && dragState.polyIndex === polyIdx ? dragState.pointIndex : null;
+      drawPoly(poly.points, "#4caf50", "rgba(76, 175, 80, 0.15)", activeIdx);
     });
     if (currentPoints.length) {
-      drawPoly(currentPoints, "#ffeb3b", null);
+      drawPoly(currentPoints, "#ffeb3b", null, null);
     }
+  }
+
+  function findNearestVertex(cx, cy, maxDistancePx) {
+    const c = canvas();
+    if (!c || !completedPolygons.length) return null;
+    let best = null;
+    let bestDist = Number.POSITIVE_INFINITY;
+    for (let pIdx = 0; pIdx < completedPolygons.length; pIdx++) {
+      const points = completedPolygons[pIdx].points || [];
+      for (let i = 0; i < points.length; i++) {
+        const px = points[i].x * c.width;
+        const py = points[i].y * c.height;
+        const dx = px - cx;
+        const dy = py - cy;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist <= maxDistancePx && dist < bestDist) {
+          bestDist = dist;
+          best = { polyIndex: pIdx, pointIndex: i };
+        }
+      }
+    }
+    return best;
   }
 
   async function loadRoi(id) {
@@ -154,6 +191,7 @@
 
   function setSelecting(on) {
     isSelecting = on;
+    dragState = null;
     const c = canvas();
     const editBtn = document.getElementById("roi-edit-btn");
     if (c) c.classList.toggle("hidden", !on);
@@ -205,7 +243,9 @@
       if (!isSelecting) return;
       e.preventDefault();
       const rect = c.getBoundingClientRect();
-      const pt = normFromCanvas(e.clientX - rect.left, e.clientY - rect.top);
+      const cx = e.clientX - rect.left;
+      const cy = e.clientY - rect.top;
+      const pt = normFromCanvas(cx, cy);
       if (!pt) return;
       if (e.button === 2) {
         if (currentPoints.length >= 3) {
@@ -215,7 +255,41 @@
         }
         return;
       }
+
+      if (e.button === 0) {
+        const hit = findNearestVertex(cx, cy, 10);
+        if (hit) {
+          dragState = hit;
+          draw();
+          return;
+        }
+      }
       currentPoints.push(pt);
+      draw();
+    });
+
+    c.addEventListener("mousemove", function (e) {
+      if (!isSelecting || !dragState) return;
+      const rect = c.getBoundingClientRect();
+      const pt = normFromCanvas(e.clientX - rect.left, e.clientY - rect.top);
+      if (!pt) return;
+      const poly = completedPolygons[dragState.polyIndex];
+      if (!poly || !poly.points || !poly.points[dragState.pointIndex]) return;
+      poly.points[dragState.pointIndex] = pt;
+      draw();
+    });
+
+    c.addEventListener("mouseup", function () {
+      if (!isSelecting || !dragState) return;
+      dragState = null;
+      saveRoi(true);
+      draw();
+    });
+
+    c.addEventListener("mouseleave", function () {
+      if (!isSelecting || !dragState) return;
+      dragState = null;
+      saveRoi(true);
       draw();
     });
 

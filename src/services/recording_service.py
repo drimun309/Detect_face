@@ -34,7 +34,21 @@ class RecordingService:
         """provider: callable returning list of CameraSchema."""
         self._camera_provider = provider
 
+    def _reap_recording(self, camera_id: int) -> None:
+        """Убрать завершившийся ffmpeg из активных."""
+        with self._lock:
+            proc = self._active_recordings.get(camera_id)
+            if proc is None:
+                return
+            try:
+                dead = proc.poll() is not None
+            except Exception:
+                dead = True
+            if dead:
+                self._active_recordings.pop(camera_id, None)
+
     def is_recording(self, camera_id: int) -> bool:
+        self._reap_recording(camera_id)
         with self._lock:
             proc = self._active_recordings.get(camera_id)
         if proc is None:
@@ -76,11 +90,18 @@ class RecordingService:
         camera_id: int,
         camera_name: str,
         rtsp_url: str,
+        *,
+        manual: bool = False,
     ) -> bool:
         """Start recording for a camera."""
+        self._reap_recording(camera_id)
         if not self.settings.enabled:
             return False
-        if self.settings.shift.enabled and not self.is_shift_active():
+        if (
+            not manual
+            and self.settings.shift.enabled
+            and not self.is_shift_active()
+        ):
             return False
         with self._lock:
             if camera_id in self._active_recordings:
@@ -258,10 +279,11 @@ class RecordingService:
             return
         # start for all enabled cams
         for cam in cams:
+            self._reap_recording(cam.id)
             if not self.is_recording(cam.id):
                 # annotated stream in MediaMTX
                 rtsp = f"rtsp://mediamtx:8554/annot_cam_{cam.id}"
-                self.start_recording(cam.id, cam.name, rtsp)
+                self.start_recording(cam.id, cam.name, rtsp, manual=False)
 
 
 _recording_service: Optional[RecordingService] = None
