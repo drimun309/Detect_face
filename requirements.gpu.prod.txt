@@ -1,5 +1,6 @@
 # usage: pip install -r requirements.gpu.prod.txt
 # PyTorch CUDA is provided by docker image pytorch/pytorch:*-cuda*-runtime
+# onnxruntime-gpu and ultralytics installed separately in dockerfile
 
 rootutils==1.0.7
 colorlog==6.7.0
@@ -27,5 +28,3 @@ opencv-python-headless==4.9.*
 pillow==10.*
 numpy==1.26.*
 onnx==1.16.*
-onnxruntime-gpu==1.17.*
-ultralytics>=8.3.0

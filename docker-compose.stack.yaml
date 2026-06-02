@@ -28,7 +28,7 @@ services:
   backend:
     build:
       context: .
-      dockerfile: dockerfile.onnx.prod
+      dockerfile: dockerfile.gpu.prod
     container_name: detect-face-backend
     restart: unless-stopped
     env_file:
@@ -45,8 +45,8 @@ services:
       - ENABLE_ANNOTATED_STREAM=true
       - STREAM_FPS=10
       - STREAM_FRAME_INTERVAL=2
-      - FR_PROVIDER=cpu
-      - PERSON_DET_ENGINE_PATH=assets/yolov8s.pt
+      - LD_LIBRARY_PATH=/usr/local/lib:/usr/local/lib/python3.10/site-packages/nvidia/cublas/lib:/usr/local/lib/python3.10/site-packages/nvidia/cudnn/lib:/usr/local/lib/python3.10/site-packages/nvidia/curand/lib:/usr/local/lib/python3.10/site-packages/nvidia/nccl/lib:/usr/local/lib/python3.10/site-packages/nvidia/cufft/lib:/usr/local/lib/python3.10/site-packages/nvidia/cuda_runtime/lib
+      - LD_LIBRARY_PATH=/usr/local/lib/python3.10/site-packages/nvidia/cublas/lib:/usr/local/lib/python3.10/site-packages/nvidia/cudnn/lib:/usr/local/lib/python3.10/site-packages/nvidia/nccl/lib
     volumes:
       - ./src:/app/src
       - ./assets:/app/assets:ro
@@ -58,6 +58,14 @@ services:
     command: python src/main.py
     networks:
       - detect-face-network
+    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
 
   vision-fr-postgres:
     container_name: detect-face-postgres
