@@ -39,6 +39,7 @@ class RoiTimerStore:
         self.pg = pg
         self._lock = Lock()
         self._cache: dict[tuple[int, str], RoiTimerState] = {}
+        self._last_present_ts: dict[tuple[int, str], float] = {}
         self._ensure_table()
 
     def _rollback(self) -> None:
@@ -166,6 +167,7 @@ class RoiTimerStore:
                     cid, roi_key = cache_key
                     if cid == camera_id and roi_key not in keys_set:
                         del self._cache[cache_key]
+                        self._last_present_ts.pop(cache_key, None)
 
                 for idx, poly in enumerate(polygons, start=1):
                     roi_key = keys[idx - 1]
@@ -207,6 +209,7 @@ class RoiTimerStore:
             for cache_key in list(self._cache.keys()):
                 if cache_key[0] == camera_id:
                     del self._cache[cache_key]
+                    self._last_present_ts.pop(cache_key, None)
 
     def tick(
         self,
@@ -214,6 +217,7 @@ class RoiTimerStore:
         roi_keys: list[str],
         presence_flags: list[bool],
         switch_seconds: float,
+        reset_grace_seconds: float = 0.0,
         now: float | None = None,
     ) -> None:
         if not roi_keys or len(roi_keys) != len(presence_flags):
@@ -226,13 +230,24 @@ class RoiTimerStore:
                     if state is None:
                         # missed sync, skip this frame
                         continue
+                    cache_key = (camera_id, roi_key)
+                    if present:
+                        self._last_present_ts[cache_key] = ts
+                        effective_present = True
+                    else:
+                        last_seen = self._last_present_ts.get(cache_key)
+                        effective_present = bool(
+                            last_seen is not None
+                            and reset_grace_seconds > 0
+                            and (ts - last_seen) <= reset_grace_seconds
+                        )
                     dt = max(0.0, ts - (state.last_tick or ts))
                     if state.mode == "work":
                         state.work_seconds += dt
                     elif state.mode == "idle":
                         state.idle_seconds += dt
 
-                    if present:
+                    if effective_present:
                         state.absence_since = None
                         if state.mode in ("standby", "idle"):
                             if state.presence_since is None:
@@ -242,7 +257,7 @@ class RoiTimerStore:
                                 state.presence_since = None
                     else:
                         state.presence_since = None
-                        if state.mode == "work":
+                        if state.mode in ("standby", "work"):
                             if state.absence_since is None:
                                 state.absence_since = ts
                             elif (ts - state.absence_since) >= switch_seconds:
@@ -296,6 +311,11 @@ class RoiTimerStore:
                         left = max(0, int(switch_seconds - (ts - state.presence_since)))
                         labels.append(
                             f"ROI {idx} работа {work_txt} | простой {idle_txt} (работа через {left}с)"
+                        )
+                    elif state.absence_since is not None:
+                        left = max(0, int(switch_seconds - (ts - state.absence_since)))
+                        labels.append(
+                            f"ROI {idx} работа {work_txt} | простой {idle_txt} (простой через {left}с)"
                         )
                     else:
                         labels.append(f"ROI {idx} работа {work_txt} | простой {idle_txt}")

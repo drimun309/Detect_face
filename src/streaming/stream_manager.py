@@ -171,6 +171,7 @@ class FaceStreamManager:
                 person_engine=self.person_engine,
                 roi_timer_store=self.roi_timer_store,
                 roi_switch_seconds=self.cfg.ROI_TIMER_SWITCH_SEC,
+                roi_reset_grace_seconds=self.cfg.ROI_TIMER_RESET_GRACE_SEC,
             )
             if not streamer.start():
                 return False

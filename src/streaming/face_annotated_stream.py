@@ -58,6 +58,7 @@ class FaceAnnotatedStreamer:
         person_engine: PersonDetector | None = None,
         roi_timer_store: "RoiTimerStore | None" = None,
         roi_switch_seconds: float = 60.0,
+        roi_reset_grace_seconds: float = 7.0,
     ) -> None:
         self.config = config
         self.engine = engine
@@ -65,6 +66,7 @@ class FaceAnnotatedStreamer:
         self.person_engine = person_engine
         self.roi_timer_store = roi_timer_store
         self.roi_switch_seconds = roi_switch_seconds
+        self.roi_reset_grace_seconds = roi_reset_grace_seconds
 
         self.is_running = False
         self.capture: cv2.VideoCapture | None = None
@@ -264,6 +266,7 @@ class FaceAnnotatedStreamer:
             roi_keys=self.config.roi_keys,
             presence_flags=presence,
             switch_seconds=self.roi_switch_seconds,
+            reset_grace_seconds=self.roi_reset_grace_seconds,
         )
         self._roi_labels = self.roi_timer_store.get_overlay_labels(
             camera_id=self.config.camera_id,

@@ -56,6 +56,7 @@ class Configs(BaseSettings):
     STREAM_FRAME_INTERVAL: int = 2
     STREAM_SHOW_UNKNOWN_DISTANCE: bool = False
     ROI_TIMER_SWITCH_SEC: float = 60.0
+    ROI_TIMER_RESET_GRACE_SEC: float = 7.0
     DETECTION_MODE: Literal["face", "person", "face_person"] = "face"
     FR_DET_CONF: float = 0.25
     FR_DET_NMS: float = 0.45
