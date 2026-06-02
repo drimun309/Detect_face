@@ -17,8 +17,21 @@ class RecordingSettingsSchema(BaseModel):
     """Настройки записи видео."""
 
     enabled: bool = Field(False, description="Включить запись")
+    auto_enabled: bool = Field(
+        False, description="Автоматически записывать все камеры по расписанию"
+    )
     retention_days: int = Field(3, ge=1, le=30, description="Сколько дней хранить записи")
     chunk_duration_min: int = Field(10, ge=1, le=60, description="Длительность ролика в минутах")
+    # качество: уменьшаем размер записи отдельным перекодированием
+    record_width: int = Field(
+        1280, ge=320, le=1920, description="Ширина записи (масштабирование)"
+    )
+    record_height: int = Field(
+        720, ge=240, le=1080, description="Высота записи (масштабирование)"
+    )
+    record_crf: int = Field(
+        28, ge=18, le=40, description="CRF (качество H264): ниже — лучше, выше — меньше размер"
+    )
     shift: ShiftSchedule = Field(default_factory=ShiftSchedule)
     recordings_path: str = Field(
         "data/recordings", description="Путь для хранения записей"

@@ -65,6 +65,11 @@
       recShiftEnabled: "Только в смену",
       recShiftStart: "Начало смены",
       recShiftEnd: "Конец смены",
+      recAutoEnabled: "Авто-запись по смене",
+      recQuality: "Качество (разрешение записи)",
+      recQualityHint: "Меньше разрешение — меньше размер файлов.",
+      recCrf: "CRF (качество/размер)",
+      recCrfHint: "Типично 24–32.",
       recordingsTitle: "Записи видео",
       recordingsSelectCamera: "Выбор камеры",
       selectCamera: "-- Выберите камеру --",
@@ -197,6 +202,11 @@
       recShiftEnabled: "Only during shift",
       recShiftStart: "Shift start",
       recShiftEnd: "Shift end",
+      recAutoEnabled: "Auto record by shift",
+      recQuality: "Recording resolution",
+      recQualityHint: "Lower resolution -> smaller files.",
+      recCrf: "CRF (quality/size)",
+      recCrfHint: "Typical 24–32.",
       recordingsTitle: "Recordings",
       recordingsSelectCamera: "Select camera",
       selectCamera: "-- Select camera --",
@@ -366,8 +376,14 @@
         try {
           const r = await request(API + "/settings/recording");
           document.getElementById("rec_enabled").value = r.enabled ? "true" : "false";
+          document.getElementById("rec_auto_enabled").checked = !!r.auto_enabled;
           document.getElementById("rec_retention").value = r.retention_days ?? 3;
           document.getElementById("rec_chunk").value = r.chunk_duration_min ?? 10;
+          const q = (r.record_width || 1280) + "x" + (r.record_height || 720);
+          if (document.getElementById("rec_quality").querySelector('option[value="' + q + '"]')) {
+            document.getElementById("rec_quality").value = q;
+          }
+          document.getElementById("rec_crf").value = r.record_crf ?? 28;
           document.getElementById("rec_shift_enabled").checked = !!(r.shift && r.shift.enabled);
           document.getElementById("rec_shift_start").value = (r.shift && r.shift.start_time) || "09:00";
           document.getElementById("rec_shift_end").value = (r.shift && r.shift.end_time) || "18:00";
@@ -409,8 +425,12 @@
 
         const recPayload = {
           enabled: document.getElementById("rec_enabled").value === "true",
+          auto_enabled: document.getElementById("rec_auto_enabled").checked,
           retention_days: Number(document.getElementById("rec_retention").value || 3),
           chunk_duration_min: Number(document.getElementById("rec_chunk").value || 10),
+          record_width: Number(String(document.getElementById("rec_quality").value).split("x")[0] || 1280),
+          record_height: Number(String(document.getElementById("rec_quality").value).split("x")[1] || 720),
+          record_crf: Number(document.getElementById("rec_crf").value || 28),
           shift: {
             enabled: document.getElementById("rec_shift_enabled").checked,
             start_time: document.getElementById("rec_shift_start").value || "09:00",

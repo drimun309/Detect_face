@@ -99,11 +99,20 @@ def main_api(cfg: Configs) -> None:
     app.include_router(enroll_api.router, prefix="/api/v1", tags=["enrollment"])
 
     from src.api.recording_api import RecordingApi
-    from src.services.recording_service import init_recording_service
     from src.schema.settings_schema import RecordingSettingsSchema
+    from src.services.recording_service import init_recording_service
+    from src.services.recording_settings_store import RecordingSettingsStore
 
-    recording_service = init_recording_service(RecordingSettingsSchema())
-    recording_api = RecordingApi()
+    rec_store = RecordingSettingsStore("data/backend/recording_settings.json")
+    rec_settings = rec_store.get()
+    init_recording_service(rec_settings)
+    from src.services.recording_service import get_recording_service
+
+    svc = get_recording_service()
+    if svc:
+        svc.set_camera_provider(camera_store.list)
+
+    recording_api = RecordingApi(rec_store)
     app.include_router(recording_api.router, prefix="/api/v1", tags=["recordings"])
 
     if cfg.SERVER == "gunicorn":

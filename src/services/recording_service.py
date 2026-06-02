@@ -25,9 +25,14 @@ class RecordingService:
         self._lock = threading.Lock()
         self._running = False
         self._thread: Optional[threading.Thread] = None
+        self._camera_provider = None
 
     def update_settings(self, settings: RecordingSettingsSchema) -> None:
         self.settings = settings
+
+    def set_camera_provider(self, provider) -> None:
+        """provider: callable returning list of CameraSchema."""
+        self._camera_provider = provider
 
     def is_recording(self, camera_id: int) -> bool:
         with self._lock:
@@ -87,6 +92,7 @@ class RecordingService:
         output_pattern = str(output_dir / "%H%M%S.mp4")
 
         # ffmpeg: RTSP -> H264 mp4 segments
+        vf = f"scale={self.settings.record_width}:{self.settings.record_height}"
         cmd = [
             "ffmpeg",
             "-hide_banner",
@@ -98,10 +104,14 @@ class RecordingService:
             "-i",
             rtsp_url,
             "-an",
+            "-vf",
+            vf,
             "-c:v",
             "libx264",
             "-preset",
             "veryfast",
+            "-crf",
+            str(int(self.settings.record_crf)),
             "-tune",
             "zerolatency",
             "-pix_fmt",
@@ -218,13 +228,40 @@ class RecordingService:
     def _cleanup_loop(self) -> None:
         """Background loop to cleanup old recordings."""
         while self._running:
-            time.sleep(3600)  # Check every hour
             try:
-                deleted = self.cleanup_old_recordings()
-                if deleted > 0:
-                    log.info(f"Cleaned up {deleted} old recording directories")
+                # auto-record loop every 5 seconds
+                self._sync_auto_recording()
             except Exception as e:
                 log.error(f"Cleanup error: {e}")
+            # cleanup old recordings hourly
+            if int(time.time()) % 3600 < 5:
+                try:
+                    deleted = self.cleanup_old_recordings()
+                    if deleted > 0:
+                        log.info(f"Cleaned up {deleted} old recording directories")
+                except Exception:
+                    pass
+            time.sleep(5)
+
+    def _sync_auto_recording(self) -> None:
+        if not self.settings.enabled or not self.settings.auto_enabled:
+            return
+        if not self._camera_provider:
+            return
+        active = self.is_shift_active() if self.settings.shift.enabled else True
+        cams = [c for c in (self._camera_provider() or []) if getattr(c, "enabled", False)]
+        if not active:
+            # stop all
+            for cam in cams:
+                if self.is_recording(cam.id):
+                    self.stop_recording(cam.id)
+            return
+        # start for all enabled cams
+        for cam in cams:
+            if not self.is_recording(cam.id):
+                # annotated stream in MediaMTX
+                rtsp = f"rtsp://mediamtx:8554/annot_cam_{cam.id}"
+                self.start_recording(cam.id, cam.name, rtsp)
 
 
 _recording_service: Optional[RecordingService] = None

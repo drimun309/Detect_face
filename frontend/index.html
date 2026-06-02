@@ -319,6 +319,12 @@
                       <option value="true" data-i18n="enabled">Вкл</option>
                     </select>
                   </div>
+                  <div class="form-group checkbox-group">
+                    <label class="checkbox-label">
+                      <input id="rec_auto_enabled" name="rec_auto_enabled" type="checkbox" />
+                      <span data-i18n="recAutoEnabled">Авто-запись по смене</span>
+                    </label>
+                  </div>
                   <div class="form-group">
                     <label for="rec_retention" data-i18n="recRetention">Хранить дней</label>
                     <input
@@ -342,6 +348,24 @@
                       value="10"
                       class="form-input"
                     />
+                  </div>
+                </div>
+                <div class="form-grid">
+                  <div class="form-group">
+                    <label for="rec_quality" data-i18n="recQuality">Качество (разрешение записи)</label>
+                    <select id="rec_quality" name="rec_quality" class="form-select">
+                      <option value="1280x720">1280×720</option>
+                      <option value="960x540">960×540</option>
+                      <option value="640x360">640×360</option>
+                    </select>
+                    <p class="help-text" data-i18n="recQualityHint">
+                      Меньше разрешение — меньше размер файлов.
+                    </p>
+                  </div>
+                  <div class="form-group">
+                    <label for="rec_crf" data-i18n="recCrf">CRF (качество/размер)</label>
+                    <input id="rec_crf" name="rec_crf" type="number" min="18" max="40" value="28" class="form-input" />
+                    <p class="help-text" data-i18n="recCrfHint">Типично 24–32.</p>
                   </div>
                 </div>
                 <div class="form-group checkbox-group">

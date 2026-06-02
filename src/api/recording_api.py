@@ -5,10 +5,12 @@ from fastapi.responses import FileResponse
 
 from src.schema.settings_schema import RecordingSettingsSchema
 from src.services.recording_service import get_recording_service
+from src.services.recording_settings_store import RecordingSettingsStore
 
 
 class RecordingApi:
-    def __init__(self) -> None:
+    def __init__(self, store: RecordingSettingsStore) -> None:
+        self.store = store
         self.router = APIRouter()
         self.setup()
 
@@ -18,16 +20,17 @@ class RecordingApi:
             service = get_recording_service()
             if service:
                 return service.settings
-            return RecordingSettingsSchema()
+            return self.store.get()
 
         @self.router.put("/settings/recording", response_model=RecordingSettingsSchema)
         async def update_recording_settings(
             payload: RecordingSettingsSchema,
         ) -> RecordingSettingsSchema:
+            saved = self.store.save(payload)
             service = get_recording_service()
             if service:
-                service.update_settings(payload)
-            return payload
+                service.update_settings(saved)
+            return saved
 
         @self.router.get("/recordings/{camera_id}/{camera_name}/dates")
         async def get_recording_dates(camera_id: int, camera_name: str) -> list[str]:
