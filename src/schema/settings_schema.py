@@ -5,6 +5,26 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
+class ShiftSchedule(BaseModel):
+    """Время начала и конца смены."""
+
+    enabled: bool = Field(False, description="Включить запись по расписанию")
+    start_time: str = Field("09:00", description="Время начала смены HH:MM")
+    end_time: str = Field("18:00", description="Время окончания смены HH:MM")
+
+
+class RecordingSettingsSchema(BaseModel):
+    """Настройки записи видео."""
+
+    enabled: bool = Field(False, description="Включить запись")
+    retention_days: int = Field(3, ge=1, le=30, description="Сколько дней хранить записи")
+    chunk_duration_min: int = Field(10, ge=1, le=60, description="Длительность ролика в минутах")
+    shift: ShiftSchedule = Field(default_factory=ShiftSchedule)
+    recordings_path: str = Field(
+        "data/recordings", description="Путь для хранения записей"
+    )
+
+
 class DetectionSettingsSchema(BaseModel):
     """Параметры точности детекции и распознавания лиц."""
 

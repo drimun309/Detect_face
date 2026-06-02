@@ -6,6 +6,7 @@
       tabCameras: "Камеры",
       tabSettings: "Настройки",
       tabEnroll: "Регистрация лиц",
+      tabRecordings: "Записи",
       addCamera: "Добавить камеру",
       cameras: "Камеры",
       syncGo2rtc: "Синхр. go2rtc",
@@ -57,6 +58,23 @@
       sectionRecognition: "Распознавание (PostgreSQL)",
       sectionStream: "Поток и производительность",
       sectionDisplay: "Отображение",
+      sectionRecording: "Запись видео",
+      recEnabled: "Запись",
+      recRetention: "Хранить дней",
+      recChunk: "Длительность ролика (мин)",
+      recShiftEnabled: "Только в смену",
+      recShiftStart: "Начало смены",
+      recShiftEnd: "Конец смены",
+      recordingsTitle: "Записи видео",
+      recordingsSelectCamera: "Выбор камеры",
+      selectCamera: "-- Выберите камеру --",
+      selectDate: "-- Сначала выберите камеру --",
+      recordingsList: "Ролики",
+      recSelectHint: "Выберите камеру и дату для просмотра записей",
+      play: "Смотреть",
+      recToggle: "Запись: выкл.",
+      recOn: "Запись: ВКЛ",
+      recOff: "Запись: выкл.",
       detConf: "Уверенность детектора",
       detConfHelp:
         "Выше — меньше ложных лиц, но можно пропустить дальние. Рекомендуется 25–55%.",
@@ -120,6 +138,7 @@
       tabCameras: "Cameras",
       tabSettings: "Settings",
       tabEnroll: "Enroll faces",
+      tabRecordings: "Recordings",
       addCamera: "Add camera",
       cameras: "Cameras",
       syncGo2rtc: "Sync go2rtc",
@@ -171,6 +190,23 @@
       sectionRecognition: "Recognition (PostgreSQL)",
       sectionStream: "Stream & performance",
       sectionDisplay: "Display",
+      sectionRecording: "Recording",
+      recEnabled: "Recording",
+      recRetention: "Keep days",
+      recChunk: "Chunk (min)",
+      recShiftEnabled: "Only during shift",
+      recShiftStart: "Shift start",
+      recShiftEnd: "Shift end",
+      recordingsTitle: "Recordings",
+      recordingsSelectCamera: "Select camera",
+      selectCamera: "-- Select camera --",
+      selectDate: "-- Select date --",
+      recordingsList: "Files",
+      recSelectHint: "Select camera and date to view recordings",
+      play: "Play",
+      recToggle: "Rec: off",
+      recOn: "Rec: ON",
+      recOff: "Rec: off",
       detConf: "Detector confidence",
       detConfHelp: "Higher = fewer false detections. Try 25–55%.",
       detNms: "NMS overlap",
@@ -325,117 +361,17 @@
           enrolledEl.textContent = "";
         }
         saveMsg.textContent = "";
-      } catch (err) {
-        saveMsg.textContent = err.message;
-        saveMsg.className = "save-message error";
-        onStatus && onStatus(err.message, true);
-      } finally {
-        saveBtn.disabled = false;
-      }
-    }
 
-    form.addEventListener("submit", async function (e) {
-      e.preventDefault();
-      saveBtn.disabled = true;
-      saveMsg.textContent = t("saving");
-      saveMsg.className = "save-message";
-      const parts = form.stream_resolution.value.split("x");
-      const payload = {
-        detection_mode: String(form.detection_mode.value || "face"),
-        fr_det_conf: Math.min(1, Math.max(0.01, Number(confRange.value) / 100)),
-        fr_det_nms: Number(form.fr_det_nms.value),
-        fr_distance: Number(distRange.value),
-        min_det_score: Number(form.min_det_score.value),
-        stream_frame_interval: Number(form.stream_frame_interval.value),
-        stream_fps: Number(form.stream_fps.value),
-        stream_width: Number(parts[0]),
-        stream_height: Number(parts[1]),
-        stream_show_unknown_distance: form.stream_show_unknown_distance.checked,
-        embedding_refresh_sec: Number(form.embedding_refresh_sec.value),
-      };
-      try {
-        await request(API + "/settings/detection", {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-        saveMsg.textContent = t("savedOk");
-        saveMsg.className = "save-message success";
-        onStatus && onStatus(t("savedOk"), false);
-        await loadSettings();
-      } catch (err) {
-        saveMsg.textContent = t("savedErr");
-        saveMsg.className = "save-message error";
-        onStatus && onStatus(err.message, true);
-      } finally {
-        saveBtn.disabled = false;
-      }
-    });
-
-    document.addEventListener("df-lang-change", loadSettings);
-    loadSettings();
-  };
-})();
-
-(function () {
-  const API = "/api/v1";
-  const t = () => window.DF_I18N.t.apply(null, arguments);
-
-  async function request(url, options) {
-    const res = await fetch(url, options);
-    if (!res.ok) throw new Error((await res.text()) || "HTTP " + res.status);
-    return res.json();
-  }
-
-  window.DF_initSettings = function (onStatus) {
-    const form = document.getElementById("settings-form");
-    const saveBtn = document.getElementById("settings-save-btn");
-    const saveMsg = document.getElementById("settings-save-msg");
-    const confPct = document.getElementById("det-conf-pct");
-    const confRange = document.getElementById("fr_det_conf");
-    const distVal = document.getElementById("dist-val");
-    const distRange = document.getElementById("fr_distance");
-    const enrolledEl = document.getElementById("settings-enrolled");
-
-    if (!form) return;
-
-    confRange.addEventListener("input", () => {
-      confPct.textContent = confRange.value + "%";
-    });
-    distRange.addEventListener("input", () => {
-      distVal.textContent = distRange.value;
-    });
-
-    async function loadSettings() {
-      saveBtn.disabled = true;
-      saveMsg.textContent = t("loading");
-      saveMsg.className = "save-message";
-      try {
-        const s = await request(API + "/settings/detection");
-        form.detection_mode.value = s.detection_mode || "face";
-        confRange.value = Math.round(s.fr_det_conf * 100);
-        confPct.textContent = confRange.value + "%";
-        form.fr_det_nms.value = s.fr_det_nms;
-        distRange.value = s.fr_distance;
-        distVal.textContent = s.fr_distance;
-        form.min_det_score.value = s.min_det_score;
-        form.stream_frame_interval.value = s.stream_frame_interval;
-        form.stream_fps.value = s.stream_fps;
-        const res = s.stream_width + "x" + s.stream_height;
-        if (form.stream_resolution.querySelector('option[value="' + res + '"]')) {
-          form.stream_resolution.value = res;
-        }
-        form.embedding_refresh_sec.value = s.embedding_refresh_sec;
-        form.stream_show_unknown_distance.checked = s.stream_show_unknown_distance;
-
+        // recording settings
         try {
-          const streams = await request(API + "/streams/status");
-          const n = (streams.items && streams.items[0] && streams.items[0].enrolled_faces) || 0;
-          enrolledEl.textContent = t("enrolledCount", { n: n });
-        } catch (_) {
-          enrolledEl.textContent = "";
-        }
-        saveMsg.textContent = "";
+          const r = await request(API + "/settings/recording");
+          document.getElementById("rec_enabled").value = r.enabled ? "true" : "false";
+          document.getElementById("rec_retention").value = r.retention_days ?? 3;
+          document.getElementById("rec_chunk").value = r.chunk_duration_min ?? 10;
+          document.getElementById("rec_shift_enabled").checked = !!(r.shift && r.shift.enabled);
+          document.getElementById("rec_shift_start").value = (r.shift && r.shift.start_time) || "09:00";
+          document.getElementById("rec_shift_end").value = (r.shift && r.shift.end_time) || "18:00";
+        } catch (_) {}
       } catch (err) {
         saveMsg.textContent = err.message;
         saveMsg.className = "save-message error";
@@ -470,6 +406,23 @@
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
+
+        const recPayload = {
+          enabled: document.getElementById("rec_enabled").value === "true",
+          retention_days: Number(document.getElementById("rec_retention").value || 3),
+          chunk_duration_min: Number(document.getElementById("rec_chunk").value || 10),
+          shift: {
+            enabled: document.getElementById("rec_shift_enabled").checked,
+            start_time: document.getElementById("rec_shift_start").value || "09:00",
+            end_time: document.getElementById("rec_shift_end").value || "18:00",
+          },
+        };
+        await request(API + "/settings/recording", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(recPayload),
+        });
+
         saveMsg.textContent = t("savedOk");
         saveMsg.className = "save-message success";
         onStatus && onStatus(t("savedOk"), false);
@@ -487,6 +440,7 @@
     loadSettings();
   };
 })();
+
 (function () {
   const API = "/api/v1";
   const t = (key, vars) => window.DF_I18N.t(key, vars);
@@ -546,6 +500,26 @@
   let isConnected = false;
   let useDirectGo2rtc = false;
   let currentStreamName = "";
+  let currentCameraId = null;
+  let currentCameraName = "";
+  let currentUseAnnotated = false;
+  let recordingActive = false;
+
+  function annotatedRtspUrl(cameraId) {
+    return "rtsp://mediamtx:8554/annot_cam_" + cameraId;
+  }
+
+  async function refreshRecordingUi() {
+    const btn = document.getElementById("rec-toggle-btn");
+    if (!btn || !currentCameraId) return;
+    try {
+      const st = await request(API + "/recordings/" + currentCameraId + "/status");
+      recordingActive = !!(st && st.recording);
+    } catch (_) {}
+    btn.textContent = recordingActive ? t("recOn") : t("recOff");
+    btn.classList.toggle("btn-primary", recordingActive);
+    btn.classList.toggle("btn-secondary", !recordingActive);
+  }
 
   function setStatus(message, isError) {
     statusEl.textContent = message;
@@ -903,6 +877,9 @@
 
   function openStream(cameraId, cameraName, useAnnotated) {
     currentStreamName = useAnnotated ? "cam" + cameraId + "_annot" : "cam" + cameraId;
+    currentCameraId = String(cameraId);
+    currentCameraName = cameraName || "";
+    currentUseAnnotated = !!useAnnotated;
     useDirectGo2rtc = false;
     reconnectAttempt = 0;
     shouldReconnect = true;
@@ -913,12 +890,16 @@
     setStreamState("connecting");
     setStatus(t("connecting", { name: currentStreamName }));
     connectMp4();
+    refreshRecordingUi().catch(function () {});
   }
 
   function closeStream() {
     cleanupPeer(false);
     if (window.DF_setStreamCameraId) window.DF_setStreamCameraId(null);
     currentStreamName = "";
+    currentCameraId = null;
+    currentCameraName = "";
+    currentUseAnnotated = false;
     closeStreamModal();
     if (streamMeta) streamMeta.textContent = "";
     setStreamState("—");
@@ -936,6 +917,7 @@
         p.classList.toggle("active", p.id === "tab-" + tab);
       });
       if (tab === "enroll" && window.DF_initEnroll) window.DF_initEnroll();
+      if (tab === "recordings" && window.DF_initRecordings) window.DF_initRecordings();
     });
   });
 
@@ -1067,6 +1049,36 @@
   if (streamModalClose) streamModalClose.addEventListener("click", closeStream);
   if (streamModalBackdrop) streamModalBackdrop.addEventListener("click", closeStream);
 
+  const recToggleBtn = document.getElementById("rec-toggle-btn");
+  if (recToggleBtn) {
+    recToggleBtn.addEventListener("click", async function () {
+      if (!currentCameraId) return;
+      try {
+        if (!recordingActive) {
+          const rtsp = currentUseAnnotated ? annotatedRtspUrl(currentCameraId) : annotatedRtspUrl(currentCameraId);
+          await request(
+            API +
+              "/recordings/" +
+              currentCameraId +
+              "/start?camera_name=" +
+              encodeURIComponent(currentCameraName) +
+              "&rtsp_url=" +
+              encodeURIComponent(rtsp),
+            { method: "POST" }
+          );
+          recordingActive = true;
+        } else {
+          await request(API + "/recordings/" + currentCameraId + "/stop", { method: "POST" });
+          recordingActive = false;
+        }
+      } catch (err) {
+        setStatus(err.message, true);
+      } finally {
+        refreshRecordingUi().catch(function () {});
+      }
+    });
+  }
+
   window.DF_onEnrollSuccess = function () {
     fetch(API + "/faces/reload-embeddings", { method: "POST" }).catch(function () {});
     loadCameras().catch(function () {});
@@ -1075,6 +1087,7 @@
   if (window.DF_I18N) window.DF_I18N.applyI18n();
   if (window.DF_initRoi) window.DF_initRoi();
   if (window.DF_initSettings) window.DF_initSettings(setStatus);
+  if (window.DF_initRecordings) window.DF_initRecordings();
   loadCameras().catch(function (err) {
     setStatus(err.message, true);
   });
@@ -1083,6 +1096,193 @@
       loadCameras().catch(function () {});
     }
   }, 5000);
+})();
+
+(function () {
+  const API = "/api/v1";
+  const t = (key, vars) => window.DF_I18N.t(key, vars);
+
+  async function request(url, options) {
+    const res = await fetch(url, options);
+    if (!res.ok) throw new Error((await res.text()) || "HTTP " + res.status);
+    if (res.status === 204) return null;
+    return res.json();
+  }
+
+  function openModal() {
+    const m = document.getElementById("rec-player-modal");
+    if (!m) return;
+    m.classList.remove("hidden");
+    m.setAttribute("aria-hidden", "false");
+    document.body.style.overflow = "hidden";
+  }
+
+  function closeModal() {
+    const m = document.getElementById("rec-player-modal");
+    if (!m) return;
+    m.classList.add("hidden");
+    m.setAttribute("aria-hidden", "true");
+    document.body.style.overflow = "";
+  }
+
+  window.DF_initRecordings = function () {
+    const camSelect = document.getElementById("rec-camera-select");
+    const dateSelect = document.getElementById("rec-date-select");
+    const list = document.getElementById("rec-file-list");
+    const video = document.getElementById("rec-video");
+    const title = document.getElementById("rec-player-title");
+
+    if (!camSelect || !dateSelect || !list) return;
+
+    async function loadCameras() {
+      const data = await request(API + "/cameras");
+      camSelect.innerHTML = "";
+      const opt0 = document.createElement("option");
+      opt0.value = "";
+      opt0.textContent = t("selectCamera");
+      camSelect.appendChild(opt0);
+      (data.items || []).forEach(function (cam) {
+        const opt = document.createElement("option");
+        opt.value = String(cam.id);
+        opt.textContent = cam.id + " — " + cam.name;
+        opt.dataset.name = cam.name;
+        camSelect.appendChild(opt);
+      });
+    }
+
+    async function loadDates() {
+      const camId = camSelect.value;
+      const camName = camSelect.options[camSelect.selectedIndex]?.dataset?.name || "";
+      if (!camId || !camName) {
+        dateSelect.disabled = true;
+        dateSelect.innerHTML = "<option value=\"\">" + t("selectDate") + "</option>";
+        list.innerHTML = "<p class=\"help-text\">" + t("recSelectHint") + "</p>";
+        return;
+      }
+      const dates = await request(API + "/recordings/" + camId + "/" + encodeURIComponent(camName) + "/dates");
+      dateSelect.disabled = false;
+      dateSelect.innerHTML = "";
+      const opt0 = document.createElement("option");
+      opt0.value = "";
+      opt0.textContent = "—";
+      dateSelect.appendChild(opt0);
+      dates.forEach(function (d) {
+        const opt = document.createElement("option");
+        opt.value = d;
+        opt.textContent = d;
+        dateSelect.appendChild(opt);
+      });
+    }
+
+    async function loadFiles() {
+      const camId = camSelect.value;
+      const camName = camSelect.options[camSelect.selectedIndex]?.dataset?.name || "";
+      const date = dateSelect.value;
+      if (!camId || !camName || !date) {
+        list.innerHTML = "<p class=\"help-text\">" + t("recSelectHint") + "</p>";
+        return;
+      }
+      const files = await request(
+        API + "/recordings/" + camId + "/" + encodeURIComponent(camName) + "/" + encodeURIComponent(date)
+      );
+      if (!files.length) {
+        list.innerHTML = "<p class=\"help-text\">(пусто)</p>";
+        return;
+      }
+      list.innerHTML = "";
+      files.forEach(function (f) {
+        const row = document.createElement("div");
+        row.className = "rec-item";
+        const left = document.createElement("div");
+        const nm = document.createElement("div");
+        nm.className = "rec-item-title";
+        nm.textContent = f.filename;
+        const meta = document.createElement("div");
+        meta.className = "rec-item-meta";
+        meta.textContent = (f.size ? Math.round(f.size / 1024 / 1024) + " MB" : "") + (f.mtime ? " · " + new Date(f.mtime * 1000).toLocaleString() : "");
+        left.appendChild(nm);
+        left.appendChild(meta);
+        const right = document.createElement("div");
+        right.className = "button-group";
+        const playBtn = document.createElement("button");
+        playBtn.type = "button";
+        playBtn.className = "btn btn-primary";
+        playBtn.textContent = t("play");
+        playBtn.addEventListener("click", function () {
+          const url =
+            API +
+            "/recordings/" +
+            camId +
+            "/" +
+            encodeURIComponent(camName) +
+            "/" +
+            encodeURIComponent(date) +
+            "/" +
+            encodeURIComponent(f.filename) +
+            "/file";
+          if (title) title.textContent = camName + " · " + date + " · " + f.filename;
+          if (video) {
+            video.playbackRate = 1;
+            video.src = url;
+            video.load();
+          }
+          openModal();
+        });
+        const delBtn = document.createElement("button");
+        delBtn.type = "button";
+        delBtn.className = "btn btn-danger";
+        delBtn.textContent = t("delete");
+        delBtn.addEventListener("click", async function () {
+          if (!confirm(t("delete") + " " + f.filename + "?")) return;
+          await request(
+            API +
+              "/recordings/" +
+              camId +
+              "/" +
+              encodeURIComponent(camName) +
+              "/" +
+              encodeURIComponent(date) +
+              "/" +
+              encodeURIComponent(f.filename),
+            { method: "DELETE" }
+          );
+          loadFiles().catch(function () {});
+        });
+        right.appendChild(playBtn);
+        right.appendChild(delBtn);
+        row.appendChild(left);
+        row.appendChild(right);
+        list.appendChild(row);
+      });
+    }
+
+    camSelect.onchange = function () {
+      loadDates().then(loadFiles).catch(function (e) {
+        list.innerHTML = "<p class=\"help-text\">" + e.message + "</p>";
+      });
+    };
+    dateSelect.onchange = function () {
+      loadFiles().catch(function (e) {
+        list.innerHTML = "<p class=\"help-text\">" + e.message + "</p>";
+      });
+    };
+
+    const closeBtn = document.getElementById("rec-player-modal-close");
+    const back = document.getElementById("rec-player-modal-backdrop");
+    if (closeBtn) closeBtn.onclick = closeModal;
+    if (back) back.onclick = closeModal;
+
+    document.querySelectorAll("[id^='rec-speed-btn']").forEach(function (b) {
+      b.addEventListener("click", function () {
+        const sp = Number(b.getAttribute("data-speed") || "1");
+        if (video) video.playbackRate = sp;
+      });
+    });
+
+    loadCameras().then(loadDates).catch(function (e) {
+      list.innerHTML = "<p class=\"help-text\">" + e.message + "</p>";
+    });
+  };
 })();
 
 (function () {

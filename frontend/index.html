@@ -19,6 +19,9 @@
           <button type="button" class="nav-tab" data-tab="settings" data-i18n="tabSettings">
             Настройки
           </button>
+          <button type="button" class="nav-tab" data-tab="recordings" data-i18n="tabRecordings">
+            Записи
+          </button>
         </div>
         <div class="lang-switch">
           <button type="button" class="lang-btn active" data-lang="ru">RU</button>
@@ -306,6 +309,59 @@
                 </div>
               </section>
 
+              <section class="settings-section">
+                <h2 class="section-title" data-i18n="sectionRecording">Запись видео</h2>
+                <div class="form-grid">
+                  <div class="form-group">
+                    <label for="rec_enabled" data-i18n="recEnabled">Запись</label>
+                    <select id="rec_enabled" name="rec_enabled" class="form-select">
+                      <option value="false" data-i18n="disabled">Выкл</option>
+                      <option value="true" data-i18n="enabled">Вкл</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label for="rec_retention" data-i18n="recRetention">Хранить дней</label>
+                    <input
+                      id="rec_retention"
+                      name="rec_retention"
+                      type="number"
+                      min="1"
+                      max="30"
+                      value="3"
+                      class="form-input"
+                    />
+                  </div>
+                  <div class="form-group">
+                    <label for="rec_chunk" data-i18n="recChunk">Длительность ролика (мин)</label>
+                    <input
+                      id="rec_chunk"
+                      name="rec_chunk"
+                      type="number"
+                      min="1"
+                      max="60"
+                      value="10"
+                      class="form-input"
+                    />
+                  </div>
+                </div>
+                <div class="form-group checkbox-group">
+                  <label class="checkbox-label">
+                    <input id="rec_shift_enabled" name="rec_shift_enabled" type="checkbox" />
+                    <span data-i18n="recShiftEnabled">Только в смену</span>
+                  </label>
+                </div>
+                <div class="form-grid">
+                  <div class="form-group">
+                    <label for="rec_shift_start" data-i18n="recShiftStart">Начало смены</label>
+                    <input id="rec_shift_start" name="rec_shift_start" type="time" value="09:00" class="form-input" />
+                  </div>
+                  <div class="form-group">
+                    <label for="rec_shift_end" data-i18n="recShiftEnd">Конец смены</label>
+                    <input id="rec_shift_end" name="rec_shift_end" type="time" value="18:00" class="form-input" />
+                  </div>
+                </div>
+              </section>
+
               <div class="settings-footer">
                 <div id="settings-save-msg" class="save-message"></div>
                 <button id="settings-save-btn" type="submit" class="btn btn-save" data-i18n="saveSettings">
@@ -313,6 +369,44 @@
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+
+        <!-- Записи -->
+        <div id="tab-recordings" class="tab-panel">
+          <div class="page-wrap">
+            <div class="page-header">
+              <h1 data-i18n="recordingsTitle">Записи видео</h1>
+            </div>
+
+            <section class="settings-section">
+              <div class="section-header">
+                <h2 class="section-title" data-i18n="recordingsSelectCamera">Выбор камеры</h2>
+              </div>
+              <div class="form-grid">
+                <div class="form-group">
+                  <label for="rec-camera-select" data-i18n="camera">Камера</label>
+                  <select id="rec-camera-select" name="camera_id" class="form-select">
+                    <option value="" data-i18n="selectCamera">-- Выберите камеру --</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="rec-date-select" data-i18n="date">Дата</label>
+                  <select id="rec-date-select" name="date" class="form-select" disabled>
+                    <option value="" data-i18n="selectDate">-- Сначала выберите камеру --</option>
+                  </select>
+                </div>
+              </div>
+            </section>
+
+            <section class="settings-section">
+              <div class="section-header">
+                <h2 class="section-title" data-i18n="recordingsList">Ролики</h2>
+              </div>
+              <div id="rec-file-list" class="rec-file-list">
+                <p class="help-text" data-i18n="recSelectHint">Выберите камеру и дату для просмотра записей</p>
+              </div>
+            </section>
           </div>
         </div>
       </main>
@@ -335,6 +429,9 @@
           </button>
           <button type="button" id="roi-clear-btn" class="btn btn-secondary" data-i18n="roiClear">
             Очистить ROI
+          </button>
+          <button type="button" id="rec-toggle-btn" class="btn btn-secondary" data-i18n="recToggle">
+            Запись: выкл.
           </button>
           <span id="roi-status" class="roi-status" data-i18n="roiOff">ROI выкл.</span>
         </div>
@@ -405,7 +502,34 @@
       </div>
     </div>
 
+    <div id="rec-player-modal" class="modal hidden" aria-hidden="true">
+      <div class="modal-backdrop" id="rec-player-modal-backdrop"></div>
+      <div class="modal-dialog rec-modal-dialog" role="dialog">
+        <button type="button" class="modal-close" id="rec-player-modal-close" aria-label="Close">&times;</button>
+        <div class="rec-modal-header">
+          <h2 id="rec-player-title" class="modal-title">—</h2>
+          <div class="button-group">
+            <button id="rec-speed-btn" type="button" class="btn btn-secondary" data-speed="1">1x</button>
+            <button id="rec-speed-btn-2" type="button" class="btn btn-secondary" data-speed="2">2x</button>
+            <button id="rec-speed-btn-4" type="button" class="btn btn-secondary" data-speed="4">4x</button>
+            <button id="rec-speed-btn-8" type="button" class="btn btn-secondary" data-speed="8">8x</button>
+          </div>
+        </div>
+        <div class="player-wrap rec-player-wrap">
+          <video id="rec-video" controls playsinline></video>
+        </div>
+        <div class="rec-controls">
+          <input id="rec-progress" type="range" min="0" max="100" value="0" class="rec-progress" />
+          <span id="rec-time-display">00:00 / 00:00</span>
+        </div>
+        <div class="button-group rec-nav">
+          <button id="rec-prev-btn" type="button" class="btn btn-secondary">← Пред</button>
+          <button id="rec-next-btn" type="button" class="btn btn-secondary">След →</button>
+        </div>
+      </div>
+    </div>
+
     <script src="/roi.js" charset="UTF-8"></script>
-    <script src="/app.js?v=17" charset="UTF-8"></script>
+    <script src="/app.js?v=18" charset="UTF-8"></script>
   </body>
 </html>

@@ -98,6 +98,14 @@ def main_api(cfg: Configs) -> None:
     enroll_api = EnrollApi(cfg, settings_store)
     app.include_router(enroll_api.router, prefix="/api/v1", tags=["enrollment"])
 
+    from src.api.recording_api import RecordingApi
+    from src.services.recording_service import init_recording_service
+    from src.schema.settings_schema import RecordingSettingsSchema
+
+    recording_service = init_recording_service(RecordingSettingsSchema())
+    recording_api = RecordingApi()
+    app.include_router(recording_api.router, prefix="/api/v1", tags=["recordings"])
+
     if cfg.SERVER == "gunicorn":
         server = GunicornServer(
             app=app,

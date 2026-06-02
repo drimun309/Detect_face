@@ -537,6 +537,71 @@ th {
   margin-top: 12px;
 }
 
+/* Recordings */
+.rec-file-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.rec-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  background: #252525;
+  border: 1px solid #333;
+  border-radius: 10px;
+}
+
+.rec-item-title {
+  font-weight: 600;
+  color: #e6e6e6;
+  font-size: 14px;
+}
+
+.rec-item-meta {
+  font-size: 12px;
+  color: #8a8a8a;
+  margin-top: 2px;
+}
+
+.rec-modal-dialog {
+  max-width: min(96vw, 1100px);
+  max-height: 96vh;
+  padding: 18px 22px 16px;
+}
+
+.rec-player-wrap {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: 8px;
+}
+
+#rec-video {
+  width: 100%;
+  height: 100%;
+  background: #000;
+}
+
+.rec-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.rec-progress {
+  flex: 1;
+  accent-color: #4caf50;
+}
+
+.rec-nav {
+  justify-content: space-between;
+  margin-top: 12px;
+}
+
 .modal-title {
   font-size: 1.25rem;
   margin-bottom: 16px;

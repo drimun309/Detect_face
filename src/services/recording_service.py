@@ -1,0 +1,241 @@
+"""Recording service for saving annotated video.
+
+Сохраняет RTSP-потоки в mp4-ролики сегментами и чистит старые записи.
+"""
+
+import subprocess
+import threading
+import time
+from datetime import datetime
+from pathlib import Path
+from typing import Dict, Optional
+
+from src.schema.settings_schema import RecordingSettingsSchema
+from src.utils.logger import get_logger
+
+log = get_logger()
+
+
+class RecordingService:
+    """Service for recording annotated streams."""
+
+    def __init__(self, settings: RecordingSettingsSchema) -> None:
+        self.settings = settings
+        self._active_recordings: Dict[int, subprocess.Popen] = {}  # camera_id -> ffmpeg process
+        self._lock = threading.Lock()
+        self._running = False
+        self._thread: Optional[threading.Thread] = None
+
+    def update_settings(self, settings: RecordingSettingsSchema) -> None:
+        self.settings = settings
+
+    def is_recording(self, camera_id: int) -> bool:
+        with self._lock:
+            proc = self._active_recordings.get(camera_id)
+        if proc is None:
+            return False
+        try:
+            return proc.poll() is None
+        except Exception:
+            return True
+
+    def is_shift_active(self) -> bool:
+        """Check if current time is within shift hours."""
+        if not self.settings.shift.enabled:
+            return True  # Record all the time if not using shift
+        try:
+            now = datetime.now().time()
+            start = datetime.strptime(self.settings.shift.start_time, "%H:%M").time()
+            end = datetime.strptime(self.settings.shift.end_time, "%H:%M").time()
+            if start <= end:
+                return start <= now <= end
+            else:
+                return now >= start or now <= end
+        except ValueError:
+            return True
+
+    def get_output_path(self, camera_id: int, camera_name: str) -> Path:
+        """Get the output path for today's recordings."""
+        today = datetime.now().strftime("%Y-%m-%d")
+        base = Path(self.settings.recordings_path)
+        cam_dir = base / f"cam{camera_id}_{camera_name}" / today
+        cam_dir.mkdir(parents=True, exist_ok=True)
+        return cam_dir
+
+    def get_file_path(self, camera_id: int, camera_name: str, date: str, filename: str) -> Path:
+        base = Path(self.settings.recordings_path)
+        return base / f"cam{camera_id}_{camera_name}" / date / filename
+
+    def start_recording(
+        self,
+        camera_id: int,
+        camera_name: str,
+        rtsp_url: str,
+    ) -> bool:
+        """Start recording for a camera."""
+        if not self.settings.enabled:
+            return False
+        if self.settings.shift.enabled and not self.is_shift_active():
+            return False
+        with self._lock:
+            if camera_id in self._active_recordings:
+                return True  # Already recording
+
+        output_dir = self.get_output_path(camera_id, camera_name)
+        segment_sec = int(self.settings.chunk_duration_min) * 60
+        # сегменты будут называться по времени начала (strftime)
+        output_pattern = str(output_dir / "%H%M%S.mp4")
+
+        # ffmpeg: RTSP -> H264 mp4 segments
+        cmd = [
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-rtsp_transport",
+            "tcp",
+            "-i",
+            rtsp_url,
+            "-an",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-tune",
+            "zerolatency",
+            "-pix_fmt",
+            "yuv420p",
+            "-f",
+            "segment",
+            "-segment_time",
+            str(segment_sec),
+            "-reset_timestamps",
+            "1",
+            "-strftime",
+            "1",
+            output_pattern,
+        ]
+
+        try:
+            log.info(f"[cam {camera_id}] Starting recording segments -> {output_dir}")
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            with self._lock:
+                self._active_recordings[camera_id] = process
+            return True
+        except Exception as e:
+            log.error(f"[cam {camera_id}] Failed to start recording: {e}")
+            return False
+
+    def stop_recording(self, camera_id: int) -> None:
+        """Stop recording for a camera."""
+        with self._lock:
+            process = self._active_recordings.pop(camera_id, None)
+        if process is None:
+            return
+        log.info(f"[cam {camera_id}] Stopping recording")
+        try:
+            process.terminate()
+        except Exception:
+            pass
+
+    def get_recordings_list(self, camera_id: int, camera_name: str, date: str) -> list[dict]:
+        """Get list of recordings for a specific date."""
+        base = Path(self.settings.recordings_path)
+        cam_dir = base / f"cam{camera_id}_{camera_name}" / date
+        if not cam_dir.exists():
+            return []
+        recordings = []
+        for f in sorted(cam_dir.glob("*.mp4")):
+            stat = f.stat()
+            recordings.append({
+                "filename": f.name,
+                "size": stat.st_size,
+                "mtime": int(stat.st_mtime),
+            })
+        return recordings
+
+    def get_available_dates(self, camera_id: int, camera_name: str) -> list[str]:
+        """Get list of dates with recordings."""
+        base = Path(self.settings.recordings_path)
+        cam_dir = base / f"cam{camera_id}_{camera_name}"
+        if not cam_dir.exists():
+            return []
+        dates = [d.name for d in cam_dir.iterdir() if d.is_dir()]
+        return sorted(dates, reverse=True)
+
+    def delete_recording(self, camera_id: int, camera_name: str, date: str, filename: str) -> bool:
+        """Delete a specific recording."""
+        file_path = self.get_file_path(camera_id, camera_name, date, filename)
+        if file_path.exists():
+            file_path.unlink()
+            return True
+        return False
+
+    def cleanup_old_recordings(self) -> int:
+        """Remove recordings older than retention_days. Returns count of deleted files."""
+        if self.settings.retention_days <= 0:
+            return 0
+        cutoff = datetime.now().timestamp() - (self.settings.retention_days * 86400)
+        deleted = 0
+        base = Path(self.settings.recordings_path)
+        if not base.exists():
+            return 0
+        for cam_dir in base.iterdir():
+            if not cam_dir.is_dir():
+                continue
+            for date_dir in cam_dir.iterdir():
+                if not date_dir.is_dir():
+                    continue
+                try:
+                    dir_time = datetime.strptime(date_dir.name, "%Y-%m-%d").timestamp()
+                    if dir_time < cutoff:
+                        for f in date_dir.glob("*"):
+                            f.unlink()
+                        date_dir.rmdir()
+                        deleted += 1
+                        log.info(f"Deleted old recording: {date_dir}")
+                except ValueError:
+                    continue
+        return deleted
+
+    def start(self) -> None:
+        """Start the cleanup background thread."""
+        self._running = True
+        self._thread = threading.Thread(target=self._cleanup_loop, daemon=True)
+        self._thread.start()
+
+    def stop(self) -> None:
+        """Stop the cleanup thread."""
+        self._running = False
+        if self._thread:
+            self._thread.join(timeout=5)
+
+    def _cleanup_loop(self) -> None:
+        """Background loop to cleanup old recordings."""
+        while self._running:
+            time.sleep(3600)  # Check every hour
+            try:
+                deleted = self.cleanup_old_recordings()
+                if deleted > 0:
+                    log.info(f"Cleaned up {deleted} old recording directories")
+            except Exception as e:
+                log.error(f"Cleanup error: {e}")
+
+
+_recording_service: Optional[RecordingService] = None
+
+
+def init_recording_service(settings: RecordingSettingsSchema) -> RecordingService:
+    global _recording_service
+    _recording_service = RecordingService(settings)
+    _recording_service.start()
+    return _recording_service
+
+
+def get_recording_service() -> Optional[RecordingService]:
+    return _recording_service
