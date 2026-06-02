@@ -59,11 +59,16 @@ def format_face_label(
     return f"лицо {score:.2f}"
 
 
+def format_person_label(score: float) -> str:
+    return f"человек {score:.2f}"
+
+
 def draw_roi_polygons(
     frame: np.ndarray,
     polygons: list[list[tuple[float, float]]],
     color: tuple[int, int, int] = (0, 255, 255),
     thickness: int = 2,
+    labels: list[str] | None = None,
 ) -> np.ndarray:
     if not polygons:
         return frame
@@ -71,18 +76,37 @@ def draw_roi_polygons(
 
     h, w = frame.shape[:2]
     output = frame.copy()
-    for poly in scale_polygons_to_pixels(polygons, w, h):
+    scaled = scale_polygons_to_pixels(polygons, w, h)
+    for poly in scaled:
         if len(poly) < 3:
             continue
         pts = np.array(poly, dtype=np.int32).reshape((-1, 1, 2))
         cv2.polylines(output, [pts], isClosed=True, color=color, thickness=thickness)
+    if labels:
+        rgb = cv2.cvtColor(output, cv2.COLOR_BGR2RGB)
+        pil = Image.fromarray(rgb)
+        draw = ImageDraw.Draw(pil)
+        font = get_cyrillic_font(18)
+        for idx, poly in enumerate(scaled):
+            if idx >= len(labels) or len(poly) < 3:
+                continue
+            label = labels[idx]
+            cx = int(sum(p[0] for p in poly) / len(poly))
+            cy = int(sum(p[1] for p in poly) / len(poly))
+            tw, th = measure_cyrillic_text(label, 18)
+            x = max(0, min(output.shape[1] - tw - 8, cx - tw // 2))
+            y = max(0, min(output.shape[0] - th - 8, cy - th - 12))
+            draw.rectangle([x, y, x + tw + 8, y + th + 8], fill=(30, 30, 30))
+            draw.text((x + 4, y + 4), label, font=font, fill=(255, 255, 0))
+        output = cv2.cvtColor(np.array(pil), cv2.COLOR_RGB2BGR)
     return output
 
 
-def draw_face_results(
+def draw_detections(
     frame: np.ndarray,
     boxes: list[list[int]],
     scores: list[float],
+    categories: list[str],
     names: list[str | None],
     match_distances: list[float | None] | None = None,
     show_unknown_distance: bool = False,
@@ -94,13 +118,17 @@ def draw_face_results(
     output = frame.copy()
     labels: list[tuple[int, int, tuple[int, int, int], str]] = []
 
-    for i, (box, score, name) in enumerate(zip(boxes, scores, names)):
+    for i, (box, score, category, name) in enumerate(zip(boxes, scores, categories, names)):
         x1, y1, x2, y2 = box
-        color = (0, 200, 0) if name else (0, 140, 255)
+        cat = (category or "face").lower()
+        if cat == "person":
+            color = (255, 170, 0)
+        else:
+            color = (0, 200, 0) if name else (0, 140, 255)
         dist = None
         if match_distances and i < len(match_distances):
             dist = match_distances[i]
-        label = format_face_label(name, score, dist, show_unknown_distance)
+        label = format_person_label(score) if cat == "person" else format_face_label(name, score, dist, show_unknown_distance)
         cv2.rectangle(output, (x1, y1), (x2, y2), color, 2)
         tw, th = measure_cyrillic_text(label, font_size)
         label_y = max(y1 - th - 12, 0)
@@ -122,3 +150,24 @@ def draw_face_results(
         draw.text((x1 + padding, label_y + padding), label, font=font, fill=(255, 255, 255))
 
     return cv2.cvtColor(np.array(pil), cv2.COLOR_RGB2BGR)
+
+
+def draw_face_results(
+    frame: np.ndarray,
+    boxes: list[list[int]],
+    scores: list[float],
+    names: list[str | None],
+    match_distances: list[float | None] | None = None,
+    show_unknown_distance: bool = False,
+    font_size: int = 20,
+) -> np.ndarray:
+    return draw_detections(
+        frame=frame,
+        boxes=boxes,
+        scores=scores,
+        categories=["face"] * len(boxes),
+        names=names,
+        match_distances=match_distances,
+        show_unknown_distance=show_unknown_distance,
+        font_size=font_size,
+    )

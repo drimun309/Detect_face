@@ -2,3 +2,5 @@
 data/
 logs/
 tmp/
+wheels/
+wheels_linux/

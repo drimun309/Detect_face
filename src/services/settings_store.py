@@ -12,6 +12,7 @@ class SettingsStore:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._defaults = DetectionSettingsSchema(
+            detection_mode="face",
             fr_det_conf=cfg.FR_DET_CONF,
             fr_det_nms=cfg.FR_DET_NMS,
             fr_distance=cfg.FR_DISTANCE,

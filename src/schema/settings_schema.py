@@ -1,10 +1,17 @@
 """Runtime detection / recognition settings."""
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
 class DetectionSettingsSchema(BaseModel):
     """Параметры точности детекции и распознавания лиц."""
+
+    detection_mode: Literal["face", "person", "face_person"] = Field(
+        "face",
+        description="Режим детекции: только лица, только люди или вместе",
+    )
 
     fr_det_conf: float = Field(0.25, ge=0.01, le=1.0, description="Порог уверенности детектора YOLOX")
     fr_det_nms: float = Field(0.45, ge=0.01, le=1.0, description="NMS детектора")

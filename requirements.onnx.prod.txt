@@ -31,3 +31,6 @@ pillow==10.* # image processing
 numpy==1.26.* # numerical computing
 onnxruntime==1.17.* # ONNX runtime
 onnx==1.16.* # ONNX graph metadata
+
+# person detection YOLOv8 (.pt), CPU
+ultralytics>=8.3.0

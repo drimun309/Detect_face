@@ -33,6 +33,7 @@ class CameraStore:
         self.pg = pg
         self._lock = Lock()
         self._ensure_roi_columns()
+        self._ensure_roi_timer_table()
         self._migrate_legacy_json_once()
         self._sync_id_sequence()
 
@@ -54,6 +55,33 @@ class CameraStore:
         except SQLAlchemyError as exc:
             self._rollback()
             log.warning(f"ROI columns migration: {exc}")
+
+    def _ensure_roi_timer_table(self) -> None:
+        try:
+            self.pg.session.exec(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS roi_timers (
+                        camera_id INTEGER NOT NULL,
+                        roi_key VARCHAR(64) NOT NULL,
+                        roi_index INTEGER NOT NULL,
+                        polygon_json TEXT NOT NULL DEFAULT '[]',
+                        mode VARCHAR(16) NOT NULL DEFAULT 'standby',
+                        work_seconds DOUBLE PRECISION NOT NULL DEFAULT 0,
+                        idle_seconds DOUBLE PRECISION NOT NULL DEFAULT 0,
+                        last_tick DOUBLE PRECISION NOT NULL DEFAULT 0,
+                        presence_since DOUBLE PRECISION NULL,
+                        absence_since DOUBLE PRECISION NULL,
+                        updated_at DOUBLE PRECISION NOT NULL DEFAULT 0,
+                        PRIMARY KEY (camera_id, roi_key)
+                    )
+                    """
+                )
+            )
+            self.pg.session.commit()
+        except SQLAlchemyError as exc:
+            self._rollback()
+            log.warning(f"ROI timers table migration: {exc}")
 
     def _rollback(self) -> None:
         try:
@@ -240,6 +268,11 @@ class CameraStore:
                 if not row:
                     return False
                 self.pg.session.delete(row)
+                self.pg.session.exec(
+                    text("DELETE FROM roi_timers WHERE camera_id = :camera_id").bindparams(
+                        camera_id=camera_id
+                    )
+                )
                 self.pg.session.commit()
                 self._sync_id_sequence()
             except SQLAlchemyError:

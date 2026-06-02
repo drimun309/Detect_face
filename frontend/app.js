@@ -13,7 +13,9 @@
       liveStream: "Прямой эфир",
       stop: "Стоп",
       streamHint:
-        "Нажмите «Смотреть с детекцией» — поток с рамками и именами из PostgreSQL.",
+        "«Смотреть с детекцией» открывает большое окно с рамками и именами из PostgreSQL.",
+      streamModalDetection: "Детекция: {name}",
+      streamModalRaw: "Поток: {name}",
       watchDetection: "Смотреть с детекцией",
       watchRaw: "Сырой поток",
       delete: "Удалить",
@@ -46,7 +48,12 @@
       go2rtcSynced: "go2rtc синхронизирован",
       facesReloaded: "БД обновлена: {n} лиц",
       settingsTitle: "Настройки",
-      sectionDetection: "Детекция лиц (YOLOX)",
+      sectionDetection: "Детекция (YOLO)",
+      detectionMode: "Режим детекции",
+      modeFace: "Лицо",
+      modePerson: "Человек",
+      modeFacePerson: "Лицо + человек",
+      detectionModeHelp: "Лицо — распознавание по БД, человек — детекция тела, лицо + человек — оба класса.",
       sectionRecognition: "Распознавание (PostgreSQL)",
       sectionStream: "Поток и производительность",
       sectionDisplay: "Отображение",
@@ -120,7 +127,9 @@
       liveStream: "Live stream",
       stop: "Stop",
       streamHint:
-        "Click «Watch with detection» for boxes and names from PostgreSQL.",
+        "«Watch with detection» opens a large viewer with boxes and names from PostgreSQL.",
+      streamModalDetection: "Detection: {name}",
+      streamModalRaw: "Stream: {name}",
       watchDetection: "Watch with detection",
       watchRaw: "Raw stream",
       delete: "Delete",
@@ -153,7 +162,12 @@
       go2rtcSynced: "go2rtc synced",
       facesReloaded: "DB reloaded: {n} faces",
       settingsTitle: "Settings",
-      sectionDetection: "Face detection (YOLOX)",
+      sectionDetection: "Detection (YOLO)",
+      detectionMode: "Detection mode",
+      modeFace: "Face",
+      modePerson: "Person",
+      modeFacePerson: "Face + person",
+      detectionModeHelp: "Face uses DB recognition, person detects full body, face + person enables both.",
       sectionRecognition: "Recognition (PostgreSQL)",
       sectionStream: "Stream & performance",
       sectionDisplay: "Display",
@@ -287,6 +301,7 @@
       saveMsg.className = "save-message";
       try {
         const s = await request(API + "/settings/detection");
+        form.detection_mode.value = s.detection_mode || "face";
         confRange.value = Math.round(s.fr_det_conf * 100);
         confPct.textContent = confRange.value + "%";
         form.fr_det_nms.value = s.fr_det_nms;
@@ -326,6 +341,7 @@
       saveMsg.className = "save-message";
       const parts = form.stream_resolution.value.split("x");
       const payload = {
+        detection_mode: String(form.detection_mode.value || "face"),
         fr_det_conf: Math.min(1, Math.max(0.01, Number(confRange.value) / 100)),
         fr_det_nms: Number(form.fr_det_nms.value),
         fr_distance: Number(distRange.value),
@@ -396,6 +412,7 @@
       saveMsg.className = "save-message";
       try {
         const s = await request(API + "/settings/detection");
+        form.detection_mode.value = s.detection_mode || "face";
         confRange.value = Math.round(s.fr_det_conf * 100);
         confPct.textContent = confRange.value + "%";
         form.fr_det_nms.value = s.fr_det_nms;
@@ -435,6 +452,7 @@
       saveMsg.className = "save-message";
       const parts = form.stream_resolution.value.split("x");
       const payload = {
+        detection_mode: String(form.detection_mode.value || "face"),
         fr_det_conf: Math.min(1, Math.max(0.01, Number(confRange.value) / 100)),
         fr_det_nms: Number(form.fr_det_nms.value),
         fr_distance: Number(distRange.value),
@@ -506,6 +524,10 @@
   }
   const syncBtn = document.getElementById("sync-btn");
   const reloadFacesBtn = document.getElementById("reload-faces-btn");
+  const streamModal = document.getElementById("stream-modal");
+  const streamModalBackdrop = document.getElementById("stream-modal-backdrop");
+  const streamModalClose = document.getElementById("stream-modal-close");
+  const streamModalTitle = document.getElementById("stream-modal-title");
   const streamVideo = document.getElementById("stream-video");
   const streamMeta = document.getElementById("stream-meta");
   const streamState = document.getElementById("stream-state");
@@ -568,7 +590,49 @@
       } catch (_) {}
       pc = null;
     }
-    if (!keepVideo && streamVideo) streamVideo.srcObject = null;
+    if (!keepVideo && streamVideo) {
+      streamVideo.srcObject = null;
+      streamVideo.removeAttribute("src");
+      try {
+        streamVideo.load();
+      } catch (_) {}
+    }
+  }
+
+  /** MP4 через go2rtc/nginx — стабильнее WebRTC в Docker на Windows. */
+  function connectMp4() {
+    if (!currentStreamName || !streamVideo) return;
+    cleanupPeer(true);
+    setStreamState("connecting");
+    const url =
+      window.location.origin +
+      "/go2rtc/api/stream.mp4?src=" +
+      encodeURIComponent(currentStreamName);
+    streamVideo.srcObject = null;
+    streamVideo.src = url;
+    streamVideo.muted = true;
+    streamVideo.playsInline = true;
+    streamVideo.onloadeddata = function () {
+      isConnected = true;
+      reconnectAttempt = 0;
+      setStreamState("connected");
+      setStatus(t("connecting", { name: currentStreamName }));
+    };
+    streamVideo.onerror = function () {
+      isConnected = false;
+      setStreamState("error");
+      scheduleReconnect();
+    };
+    streamVideo
+      .play()
+      .then(function () {
+        isConnected = true;
+        setStreamState("connected");
+      })
+      .catch(function (err) {
+        console.warn("[MP4] play blocked", err);
+        setStatus(t("autoplayBlocked"), true);
+      });
   }
 
   async function attachStreamToVideo(stream) {
@@ -588,7 +652,7 @@
     const delay = RECONNECT_DELAYS[Math.min(reconnectAttempt, RECONNECT_DELAYS.length - 1)];
     reconnectTimer = setTimeout(function () {
       reconnectAttempt++;
-      connectWebRTC();
+      connectMp4();
     }, delay);
   }
 
@@ -815,23 +879,48 @@
     });
   }
 
+  function openStreamModal(cameraName, useAnnotated) {
+    if (!streamModal) return;
+    if (streamModalTitle) {
+      streamModalTitle.textContent = useAnnotated
+        ? t("streamModalDetection", { name: cameraName })
+        : t("streamModalRaw", { name: cameraName });
+    }
+    streamModal.classList.remove("hidden");
+    streamModal.setAttribute("aria-hidden", "false");
+    document.body.style.overflow = "hidden";
+    window.dispatchEvent(new Event("resize"));
+  }
+
+  function closeStreamModal() {
+    if (!streamModal) return;
+    streamModal.classList.add("hidden");
+    streamModal.setAttribute("aria-hidden", "true");
+    if (!cameraModal || cameraModal.classList.contains("hidden")) {
+      document.body.style.overflow = "";
+    }
+  }
+
   function openStream(cameraId, cameraName, useAnnotated) {
     currentStreamName = useAnnotated ? "cam" + cameraId + "_annot" : "cam" + cameraId;
     useDirectGo2rtc = false;
     reconnectAttempt = 0;
     shouldReconnect = true;
     isConnected = false;
-    streamMeta.textContent = cameraName + " · " + currentStreamName;
+    openStreamModal(cameraName, useAnnotated);
+    if (streamMeta) streamMeta.textContent = currentStreamName;
     if (window.DF_setStreamCameraId) window.DF_setStreamCameraId(String(cameraId));
+    setStreamState("connecting");
     setStatus(t("connecting", { name: currentStreamName }));
-    connectWebRTC();
+    connectMp4();
   }
 
   function closeStream() {
     cleanupPeer(false);
     if (window.DF_setStreamCameraId) window.DF_setStreamCameraId(null);
     currentStreamName = "";
-    streamMeta.textContent = t("streamHint");
+    closeStreamModal();
+    if (streamMeta) streamMeta.textContent = "";
     setStreamState("—");
     setStatus(t("streamStopped"));
   }
@@ -858,7 +947,6 @@
         b.classList.toggle("active", b.getAttribute("data-lang") === lang);
       });
       loadCameras().catch(function () {});
-      streamMeta.textContent = t("streamHint");
     });
   });
 
@@ -872,7 +960,12 @@
   if (cameraModalClose) cameraModalClose.addEventListener("click", closeCameraModal);
   if (cameraModalBackdrop) cameraModalBackdrop.addEventListener("click", closeCameraModal);
   document.addEventListener("keydown", function (e) {
-    if (e.key === "Escape" && cameraModal && !cameraModal.classList.contains("hidden")) {
+    if (e.key !== "Escape") return;
+    if (streamModal && !streamModal.classList.contains("hidden")) {
+      closeStream();
+      return;
+    }
+    if (cameraModal && !cameraModal.classList.contains("hidden")) {
       closeCameraModal();
     }
   });
@@ -970,7 +1063,9 @@
     }
   });
 
-  closeStreamBtn.addEventListener("click", closeStream);
+  if (closeStreamBtn) closeStreamBtn.addEventListener("click", closeStream);
+  if (streamModalClose) streamModalClose.addEventListener("click", closeStream);
+  if (streamModalBackdrop) streamModalBackdrop.addEventListener("click", closeStream);
 
   window.DF_onEnrollSuccess = function () {
     fetch(API + "/faces/reload-embeddings", { method: "POST" }).catch(function () {});

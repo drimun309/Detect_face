@@ -41,11 +41,13 @@ class Configs(BaseSettings):
     # fr engine (YOLOX + MobileFaceNet)
     FR_DET_ENGINE_PATH: str = "assets/yoloxs_face.onnx"
     FR_REC_ENGINE_PATH: str = "assets/w600k_mbf.onnx"
+    PERSON_DET_ENGINE_PATH: str = "assets/yolov8s.pt"
     FR_DET_MAX_END2END: int = 100
     FR_PROVIDER: Literal["cpu", "gpu"] = "cpu"
 
     # streaming stack (go2rtc + mediamtx)
     GO2RTC_CONFIG_PATH: str = "go2rtc/go2rtc.yaml"
+    GO2RTC_RTSP_URL: str = "rtsp://go2rtc:8554"
     MEDIAMTX_URL: str = "rtsp://mediamtx:8554"
     ENABLE_ANNOTATED_STREAM: bool = True
     STREAM_WIDTH: int = 1280
@@ -53,6 +55,8 @@ class Configs(BaseSettings):
     STREAM_FPS: int = 10
     STREAM_FRAME_INTERVAL: int = 2
     STREAM_SHOW_UNKNOWN_DISTANCE: bool = False
+    ROI_TIMER_SWITCH_SEC: float = 60.0
+    DETECTION_MODE: Literal["face", "person", "face_person"] = "face"
     FR_DET_CONF: float = 0.25
     FR_DET_NMS: float = 0.45
     FR_DISTANCE: float = 0.5

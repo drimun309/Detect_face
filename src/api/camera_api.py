@@ -96,7 +96,9 @@ class CameraApi:
             if not deleted:
                 raise HTTPException(status_code=404, detail="Camera not found")
             try:
-                get_stream_manager().stop_stream(camera_id)
+                manager = get_stream_manager()
+                manager.stop_stream(camera_id)
+                manager.delete_roi_timers(camera_id)
             except RuntimeError:
                 pass
             self._sync_go2rtc()

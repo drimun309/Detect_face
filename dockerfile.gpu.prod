@@ -1,0 +1,23 @@
+# usage: docker build -f dockerfile.gpu.prod -t detect_face-backend:gpu .
+# YOLOv8s (.pt) via Ultralytics + CUDA; face ONNX via onnxruntime-gpu.
+# Requires NVIDIA Container Toolkit on host.
+
+FROM python:3.10-slim
+
+RUN DEBIAN_FRONTEND=noninteractive \
+    apt-get update && apt-get install -y --no-install-recommends \
+    curl wget ffmpeg libgl1 libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY ./requirements.gpu.prod.txt /tmp/requirements.txt
+ENV PIP_DEFAULT_TIMEOUT=600 PIP_RETRIES=10 PIP_DISABLE_PIP_VERSION_CHECK=1
+RUN pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cu124
+RUN pip install --no-cache-dir ultralytics onnxruntime-gpu
+RUN pip install --no-cache-dir -r /tmp/requirements.txt
+RUN rm /tmp/requirements.txt
+
+COPY . /app
+RUN mkdir -p /app/logs /app/tmp /app/data/backend
+
+WORKDIR /app
+CMD ["python", "src/main.py"]

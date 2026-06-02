@@ -169,6 +169,8 @@ logs/
 *.onnx
 !assets/yoloxs_face.onnx
 !assets/w600k_mbf.onnx
+!assets/yolo26n.onnx
+!assets/yolov8s.pt
 
 # runtime config (камеры, пароли RTSP)
 go2rtc/go2rtc.yaml

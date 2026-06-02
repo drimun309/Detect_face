@@ -7,20 +7,21 @@ import threading
 import time
 from dataclasses import dataclass, field
 from queue import Empty, Queue
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Literal, Optional
 from urllib.parse import urlparse
 
 import cv2
 import numpy as np
 
 from src.engine.fr_onnx_engine import FrOnnxEngine
+from src.engine.person_engine_factory import PersonDetector
 from src.services.face_embedding_store import FaceEmbeddingStore
-from src.utils.face_draw import draw_face_results, draw_roi_polygons
-from src.utils.roi_helpers import point_in_any_polygon
+from src.utils.face_draw import draw_detections, draw_roi_polygons
+from src.utils.roi_helpers import point_in_any_polygon, point_in_polygon
 from src.utils.logger import get_logger
 
 if TYPE_CHECKING:
-    pass
+    from src.services.roi_timer_store import RoiTimerStore
 
 log = get_logger()
 
@@ -30,8 +31,10 @@ class FaceStreamerConfig:
     camera_id: int
     camera_name: str
     rtsp_input_url: str
-    publish_url: str
+    rtsp_fallback_url: str = ""
+    publish_url: str = ""
     output_size: tuple[int, int] = (1280, 720)
+    detection_mode: Literal["face", "person", "face_person"] = "face"
     fps: int = 10
     frame_interval: int = 2
     det_conf: float = 0.25
@@ -41,6 +44,7 @@ class FaceStreamerConfig:
     show_unknown_distance: bool = False
     roi_enabled: bool = False
     roi_polygons: list[list[tuple[float, float]]] = field(default_factory=list)
+    roi_keys: list[str] = field(default_factory=list)
 
 
 class FaceAnnotatedStreamer:
@@ -51,10 +55,16 @@ class FaceAnnotatedStreamer:
         config: FaceStreamerConfig,
         engine: FrOnnxEngine,
         face_store: FaceEmbeddingStore,
+        person_engine: PersonDetector | None = None,
+        roi_timer_store: "RoiTimerStore | None" = None,
+        roi_switch_seconds: float = 60.0,
     ) -> None:
         self.config = config
         self.engine = engine
         self.face_store = face_store
+        self.person_engine = person_engine
+        self.roi_timer_store = roi_timer_store
+        self.roi_switch_seconds = roi_switch_seconds
 
         self.is_running = False
         self.capture: cv2.VideoCapture | None = None
@@ -66,8 +76,10 @@ class FaceAnnotatedStreamer:
         self._frame_idx = 0
         self._last_boxes: list[list[int]] = []
         self._last_scores: list[float] = []
+        self._last_categories: list[str] = []
         self._last_names: list[str | None] = []
         self._last_distances: list[float | None] = []
+        self._roi_labels: list[str] = []
         self.metrics: dict = {
             "camera_id": config.camera_id,
             "camera_name": config.camera_name,
@@ -83,8 +95,8 @@ class FaceAnnotatedStreamer:
         self._last_infer_ts = time.time()
         self._last_encode_ts = time.time()
 
-    def _safe_url(self) -> str:
-        url = self.config.rtsp_input_url
+    def _safe_url(self, url: str | None = None) -> str:
+        url = url or self.config.rtsp_input_url
         if "@" in url and "://" in url:
             protocol, rest = url.split("://", 1)
             if "@" in rest:
@@ -92,8 +104,9 @@ class FaceAnnotatedStreamer:
                 return f"{protocol}://***@{host_part}"
         return url
 
-    def _run_inference(self, frame_bgr: np.ndarray) -> None:
-        rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+    def _run_face_inference(
+        self, rgb: np.ndarray
+    ) -> tuple[list[list[int]], list[float], list[str], list[str | None], list[float | None]]:
         result = self.engine.predict(
             [rgb],
             det_conf=self.config.det_conf,
@@ -105,12 +118,76 @@ class FaceAnnotatedStreamer:
             distance_threshold=self.config.distance,
             min_det_score=self.config.min_det_score,
         )
+        return (
+            result.boxes,
+            result.scores,
+            result.categories or ["face"] * len(result.boxes),
+            names,
+            distances,
+        )
+
+    def _run_person_inference(
+        self, rgb: np.ndarray
+    ) -> tuple[list[list[int]], list[float], list[str], list[str | None], list[float | None]]:
+        if self.person_engine is None:
+            return [], [], [], [], []
+        result = self.person_engine.predict(
+            [rgb],
+            conf=self.config.det_conf,
+            nms=self.config.det_nms,
+        )[0]
+        return (
+            result.boxes,
+            result.scores,
+            result.categories or ["person"] * len(result.boxes),
+            [None] * len(result.boxes),
+            [None] * len(result.boxes),
+        )
+
+    def _run_inference(self, frame_bgr: np.ndarray) -> None:
+        rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+        mode = self.config.detection_mode
+        boxes: list[list[int]] = []
+        scores: list[float] = []
+        categories: list[str] = []
+        names: list[str | None] = []
+        distances: list[float | None] = []
+
+        if mode in ("face", "face_person"):
+            fb, fs, fc, fn, fd = self._run_face_inference(rgb)
+            boxes.extend(fb)
+            scores.extend(fs)
+            categories.extend(fc)
+            names.extend(fn)
+            distances.extend(fd)
+
+        if mode in ("person", "face_person"):
+            pb, ps, pc, pn, pd = self._run_person_inference(rgb)
+            boxes.extend(pb)
+            scores.extend(ps)
+            categories.extend(pc)
+            names.extend(pn)
+            distances.extend(pd)
+
         self.metrics["enrolled_faces"] = self.face_store.count
-        boxes, scores, names, distances = self._filter_by_roi(
-            result.boxes, result.scores, names, distances, frame_bgr.shape[1], frame_bgr.shape[0]
+        self._update_roi_timers(
+            boxes=boxes,
+            categories=categories,
+            width=frame_bgr.shape[1],
+            height=frame_bgr.shape[0],
+        )
+        boxes, scores, categories, names, distances = self._filter_by_roi(
+            boxes,
+            scores,
+            categories,
+            names,
+            distances,
+            frame_bgr.shape[1],
+            frame_bgr.shape[0],
         )
         self._last_boxes = boxes
         self._last_scores = scores
+        self._last_categories = categories
         self._last_names = names
         self._last_distances = distances
         self.metrics["faces_count"] = len(boxes)
@@ -119,48 +196,106 @@ class FaceAnnotatedStreamer:
         self,
         boxes: list[list[int]],
         scores: list[float],
+        categories: list[str],
         names: list[str | None],
         distances: list[float | None],
         width: int,
         height: int,
-    ) -> tuple[list[list[int]], list[float], list[str | None], list[float | None]]:
+    ) -> tuple[list[list[int]], list[float], list[str], list[str | None], list[float | None]]:
         if not self.config.roi_enabled or not self.config.roi_polygons:
-            return boxes, scores, names, distances
+            return boxes, scores, categories, names, distances
         if width <= 0 or height <= 0:
-            return boxes, scores, names, distances
+            return boxes, scores, categories, names, distances
 
         fb: list[list[int]] = []
         fs: list[float] = []
+        fc: list[str] = []
         fn: list[str | None] = []
         fd: list[float | None] = []
-        for box, score, name, dist in zip(boxes, scores, names, distances):
+        for box, score, category, name, dist in zip(boxes, scores, categories, names, distances):
             cx = ((box[0] + box[2]) / 2.0) / width
             cy = ((box[1] + box[3]) / 2.0) / height
             if point_in_any_polygon((cx, cy), self.config.roi_polygons):
                 fb.append(box)
                 fs.append(score)
+                fc.append(category)
                 fn.append(name)
                 fd.append(dist)
-        return fb, fs, fn, fd
+        return fb, fs, fc, fn, fd
+
+    def _update_roi_timers(
+        self,
+        boxes: list[list[int]],
+        categories: list[str],
+        width: int,
+        height: int,
+    ) -> None:
+        if (
+            self.roi_timer_store is None
+            or not self.config.roi_enabled
+            or not self.config.roi_polygons
+            or width <= 0
+            or height <= 0
+        ):
+            self._roi_labels = []
+            return
+
+        if len(self.config.roi_keys) != len(self.config.roi_polygons):
+            self.config.roi_keys = self.roi_timer_store.sync_camera_rois(
+                self.config.camera_id,
+                self.config.roi_polygons,
+            )
+        if not self.config.roi_keys:
+            self._roi_labels = []
+            return
+
+        presence = [False] * len(self.config.roi_polygons)
+        for box, category in zip(boxes, categories):
+            if (category or "").lower() != "person":
+                continue
+            cx = ((box[0] + box[2]) / 2.0) / width
+            cy = ((box[1] + box[3]) / 2.0) / height
+            for idx, poly in enumerate(self.config.roi_polygons):
+                if point_in_polygon((cx, cy), poly):
+                    presence[idx] = True
+
+        self.roi_timer_store.tick(
+            camera_id=self.config.camera_id,
+            roi_keys=self.config.roi_keys,
+            presence_flags=presence,
+            switch_seconds=self.roi_switch_seconds,
+        )
+        self._roi_labels = self.roi_timer_store.get_overlay_labels(
+            camera_id=self.config.camera_id,
+            roi_keys=self.config.roi_keys,
+            switch_seconds=self.roi_switch_seconds,
+        )
 
     def update_roi_polygons(
-        self, enabled: bool, polygons: list[list[tuple[float, float]]]
+        self,
+        enabled: bool,
+        polygons: list[list[tuple[float, float]]],
+        roi_keys: list[str] | None = None,
     ) -> None:
         self.config.roi_enabled = enabled and len(polygons) > 0
         self.config.roi_polygons = polygons if self.config.roi_enabled else []
+        self.config.roi_keys = list(roi_keys or []) if self.config.roi_enabled else []
         self._last_boxes = []
         self._last_scores = []
+        self._last_categories = []
         self._last_names = []
         self._last_distances = []
+        self._roi_labels = []
 
     def _annotate(self, frame_bgr: np.ndarray) -> np.ndarray:
         out = frame_bgr
         if self.config.roi_enabled and self.config.roi_polygons:
-            out = draw_roi_polygons(out, self.config.roi_polygons)
-        return draw_face_results(
+            out = draw_roi_polygons(out, self.config.roi_polygons, labels=self._roi_labels)
+        return draw_detections(
             out,
             self._last_boxes,
             self._last_scores,
+            self._last_categories,
             self._last_names,
             self._last_distances,
             show_unknown_distance=self.config.show_unknown_distance,
@@ -258,21 +393,45 @@ class FaceAnnotatedStreamer:
                 pass
         self.ffmpeg_process = None
 
+    def _input_urls(self) -> list[str]:
+        urls = [self.config.rtsp_input_url]
+        if self.config.rtsp_fallback_url and self.config.rtsp_fallback_url not in urls:
+            urls.append(self.config.rtsp_fallback_url)
+        return urls
+
     def _connect_rtsp(self) -> bool:
+        for url in self._input_urls():
+            if self._try_connect_rtsp(url):
+                log.info(
+                    f"[cam {self.config.camera_id}] RTSP connected via {self._safe_url(url)}"
+                )
+                return True
+            log.warning(
+                f"[cam {self.config.camera_id}] RTSP connect failed for {self._safe_url(url)}"
+            )
+        return False
+
+    def _try_connect_rtsp(self, url: str, read_attempts: int = 40) -> bool:
         self._disconnect_rtsp()
         os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = (
-            "rtsp_transport;tcp|fflags;nobuffer|flags;low_delay|stimeout;5000000"
+            "rtsp_transport;tcp|fflags;nobuffer|flags;low_delay|stimeout;15000000"
         )
-        self.capture = cv2.VideoCapture(self.config.rtsp_input_url, cv2.CAP_FFMPEG)
+        self.capture = cv2.VideoCapture(url, cv2.CAP_FFMPEG)
         self.capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         if hasattr(cv2, "CAP_PROP_OPEN_TIMEOUT_MSEC"):
-            self.capture.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 10_000)
+            self.capture.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 30_000)
         if hasattr(cv2, "CAP_PROP_READ_TIMEOUT_MSEC"):
-            self.capture.set(cv2.CAP_PROP_READ_TIMEOUT_MSEC, 10_000)
+            self.capture.set(cv2.CAP_PROP_READ_TIMEOUT_MSEC, 15_000)
         if not self.capture.isOpened():
+            self._disconnect_rtsp()
             return False
-        ret, _ = self.capture.read()
-        return bool(ret)
+        for _ in range(read_attempts):
+            ret, frame = self.capture.read()
+            if ret and frame is not None and frame.size > 0:
+                return True
+            time.sleep(0.5)
+        self._disconnect_rtsp()
+        return False
 
     def _disconnect_rtsp(self) -> None:
         if self.capture is not None:

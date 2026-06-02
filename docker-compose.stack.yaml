@@ -40,10 +40,13 @@ services:
       - POSTGRES_HOST=vision-fr-postgres
       - POSTGRES_PORT=7031
       - GO2RTC_CONFIG_PATH=/config/go2rtc.yaml
+      - GO2RTC_RTSP_URL=rtsp://go2rtc:8554
       - MEDIAMTX_URL=rtsp://mediamtx:8554
       - ENABLE_ANNOTATED_STREAM=true
       - STREAM_FPS=10
       - STREAM_FRAME_INTERVAL=2
+      - FR_PROVIDER=cpu
+      - PERSON_DET_ENGINE_PATH=assets/yolov8s.pt
     volumes:
       - ./src:/app/src
       - ./assets:/app/assets:ro

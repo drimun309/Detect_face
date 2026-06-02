@@ -47,7 +47,9 @@ cd vision-fr
 
 Скопируйте `.env.example` в `.env`, `go2rtc/go2rtc.example.yaml` → `go2rtc/go2rtc.yaml`.
 
-**Модели:** `assets/yoloxs_face.onnx` и `assets/w600k_mbf.onnx` — в репозитории. **buffalo_l** (опционально, тяжёлые) — `py -3.12 scripts/download_models.py` или `run_download_models.bat`.
+**Модели:** `assets/yoloxs_face.onnx`, `assets/w600k_mbf.onnx`, `assets/yolov8s.pt` (детекция человека, GPU через Ultralytics). Опционально ONNX: `yolo26n.onnx`. **buffalo_l** — `run_download_models.bat`.
+
+**GPU (RTX 3060):** стек собирается через `dockerfile.gpu.prod`, в `.env` укажите `FR_PROVIDER=gpu` и `PERSON_DET_ENGINE_PATH=assets/yolov8s.pt`. Нужен [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html).
 
 Запуск:
 
