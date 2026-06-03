@@ -114,6 +114,23 @@
       const activeIdx =
         dragState && dragState.polyIndex === polyIdx ? dragState.pointIndex : null;
       drawPoly(poly.points, "#4caf50", "rgba(76, 175, 80, 0.15)", activeIdx);
+      if (poly.points.length >= 3) {
+        const cx =
+          poly.points.reduce(function (s, p) {
+            return s + p.x;
+          }, 0) / poly.points.length;
+        const cy =
+          poly.points.reduce(function (s, p) {
+            return s + p.y;
+          }, 0) / poly.points.length;
+        ctx.font = "bold 14px sans-serif";
+        ctx.fillStyle = "#ffffff";
+        ctx.strokeStyle = "#1b5e20";
+        ctx.lineWidth = 3;
+        const lbl = "ROI " + (polyIdx + 1);
+        ctx.strokeText(lbl, cx * c.width - 20, cy * c.height - 8);
+        ctx.fillText(lbl, cx * c.width - 20, cy * c.height - 8);
+      }
     });
     if (currentPoints.length) {
       drawPoly(currentPoints, "#ffeb3b", null, null);

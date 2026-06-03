@@ -79,3 +79,15 @@ class DetectionSettingsSchema(BaseModel):
         le=600.0,
         description="Интервал перезагрузки эмбеддингов из PostgreSQL",
     )
+    roi_timer_switch_sec: float = Field(
+        60.0,
+        ge=5.0,
+        le=300.0,
+        description="Секунд подряд «человек в зоне» / «нет» для смены работа↔простой",
+    )
+    roi_timer_reset_grace_sec: float = Field(
+        7.0,
+        ge=0.0,
+        le=60.0,
+        description="Секунд: краткое пропадание детекции не сбрасывает присутствие",
+    )

@@ -17,7 +17,11 @@ from src.engine.fr_onnx_engine import FrOnnxEngine
 from src.engine.person_engine_factory import PersonDetector
 from src.services.face_embedding_store import FaceEmbeddingStore
 from src.utils.face_draw import draw_detections, draw_roi_polygons
-from src.utils.roi_helpers import point_in_any_polygon, point_in_polygon
+from src.utils.roi_helpers import (
+    assign_detection_to_roi,
+    point_in_any_polygon,
+    point_in_polygon,
+)
 from src.utils.logger import get_logger
 
 if TYPE_CHECKING:
@@ -174,6 +178,7 @@ class FaceAnnotatedStreamer:
         self.metrics["enrolled_faces"] = self.face_store.count
         self._update_roi_timers(
             boxes=boxes,
+            scores=scores,
             categories=categories,
             width=frame_bgr.shape[1],
             height=frame_bgr.shape[0],
@@ -228,6 +233,7 @@ class FaceAnnotatedStreamer:
     def _update_roi_timers(
         self,
         boxes: list[list[int]],
+        scores: list[float],
         categories: list[str],
         width: int,
         height: int,
@@ -252,14 +258,26 @@ class FaceAnnotatedStreamer:
             return
 
         presence = [False] * len(self.config.roi_polygons)
-        for box, category in zip(boxes, categories):
+        best: tuple[float, list[int]] | None = None
+        for box, score, category in zip(boxes, scores, categories):
             if (category or "").lower() != "person":
+                continue
+            conf = float(score or 0.0)
+            if best is not None and conf <= best[0]:
                 continue
             cx = ((box[0] + box[2]) / 2.0) / width
             cy = ((box[1] + box[3]) / 2.0) / height
-            for idx, poly in enumerate(self.config.roi_polygons):
-                if point_in_polygon((cx, cy), poly):
-                    presence[idx] = True
+            idx = assign_detection_to_roi((cx, cy), self.config.roi_polygons)
+            if idx is not None:
+                best = (conf, box)
+
+        if best is not None:
+            box = best[1]
+            cx = ((box[0] + box[2]) / 2.0) / width
+            cy = ((box[1] + box[3]) / 2.0) / height
+            idx = assign_detection_to_roi((cx, cy), self.config.roi_polygons)
+            if idx is not None:
+                presence[idx] = True
 
         self.roi_timer_store.tick(
             camera_id=self.config.camera_id,

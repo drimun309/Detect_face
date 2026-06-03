@@ -77,6 +77,25 @@
       recordingsList: "Ролики",
       recSelectHint: "Выберите камеру и дату для просмотра записей",
       play: "Смотреть",
+      recordingsDayTimeline: "День: работа и простой",
+      recTimelineDayHint: "Выберите камеру и дату для диаграммы за день",
+      recTimelineDayScale: "Шкала 24 ч · {date}",
+      recTimelineDayUntil: "данные до {time}",
+      recTimelineDayNoEvents:
+        "За {date} нет накопленной истории (ни журнал смен, ни почасовые данные). Нужен работающий поток с ROI.",
+      recTimelineHourlyNote:
+        "По журналу смен за день записей нет; полоса построена из почасовых накоплений (roi_timer_hourly).",
+      recTimelineDailyTotals: "итого: раб. {work}, прост. {idle}",
+      recTimelineFuture: "Будущее время (данных ещё нет)",
+      recTimelineClipScale: "Интервал записи",
+      recTimelineToggle: "Работа / простой по зонам",
+      recTimelineShift: "Смена",
+      recTimelineEmpty: "Нет данных по зонам за этот период",
+      recTimelineDetectNote:
+        "По журналу смен режима из БД (работа / простой / ожидание).",
+      recTimeline_work: "работа",
+      recTimeline_idle: "простой",
+      recTimeline_standby: "ожидание",
       recToggle: "Запись: выкл.",
       recOn: "Запись: ВКЛ",
       recOff: "Запись: выкл.",
@@ -104,6 +123,12 @@
       resHint: "Смена разрешения перезапускает активные потоки.",
       embeddingRefresh: "Обновление БД (сек)",
       embeddingRefreshHelp: "Перечитывание эмбеддингов из PostgreSQL.",
+      sectionRoiTimer: "ROI: работа / простой",
+      roiTimerSwitch: "Порог смены режима (сек)",
+      roiTimerSwitchHelp:
+        "Сколько секунд подряд человек в зоне (или вне зоны), чтобы сменить работа↔простой и записать в журнал.",
+      roiTimerGrace: "Пауза детекции (сек)",
+      roiTimerGraceHelp: "Краткое пропадание bbox не сбрасывает «человек в зоне».",
       showUnknownDist: "Расстояние для незнакомых",
       saveSettings: "Сохранить настройки",
       saving: "Сохранение…",
@@ -218,6 +243,25 @@
       recordingsList: "Files",
       recSelectHint: "Select camera and date to view recordings",
       play: "Play",
+      recordingsDayTimeline: "Day: work & idle",
+      recTimelineDayHint: "Select camera and date for the day chart",
+      recTimelineDayScale: "24h scale · {date}",
+      recTimelineDayUntil: "data until {time}",
+      recTimelineDayNoEvents:
+        "No history for {date} (no mode log or hourly data). ROI stream must be running.",
+      recTimelineHourlyNote:
+        "No mode-change log for this day; chart uses hourly totals (roi_timer_hourly).",
+      recTimelineDailyTotals: "total: work {work}, idle {idle}",
+      recTimelineFuture: "Future time (no data yet)",
+      recTimelineClipScale: "Recording interval",
+      recTimelineToggle: "Work / idle by zone",
+      recTimelineShift: "Shift",
+      recTimelineEmpty: "No zone data for this period",
+      recTimelineDetectNote:
+        "From DB mode-change log (work / idle / standby).",
+      recTimeline_work: "work",
+      recTimeline_idle: "idle",
+      recTimeline_standby: "standby",
       recToggle: "Rec: off",
       recOn: "Rec: ON",
       recOff: "Rec: off",
@@ -243,6 +287,12 @@
       resHint: "Resolution change restarts active streams.",
       embeddingRefresh: "DB refresh (sec)",
       embeddingRefreshHelp: "Reload embeddings from PostgreSQL.",
+      sectionRoiTimer: "ROI: work / idle",
+      roiTimerSwitch: "Mode switch threshold (sec)",
+      roiTimerSwitchHelp:
+        "Seconds person must be in/out of zone before work/idle is logged.",
+      roiTimerGrace: "Detection grace (sec)",
+      roiTimerGraceHelp: "Brief missed frames do not clear presence.",
       showUnknownDist: "Distance for unknown faces",
       saveSettings: "Save settings",
       saving: "Saving…",
@@ -370,6 +420,12 @@
         }
         form.embedding_refresh_sec.value = s.embedding_refresh_sec;
         form.stream_show_unknown_distance.checked = s.stream_show_unknown_distance;
+        if (form.roi_timer_switch_sec) {
+          form.roi_timer_switch_sec.value = s.roi_timer_switch_sec ?? 60;
+        }
+        if (form.roi_timer_reset_grace_sec) {
+          form.roi_timer_reset_grace_sec.value = s.roi_timer_reset_grace_sec ?? 7;
+        }
 
         try {
           const streams = await request(API + "/streams/status");
@@ -423,6 +479,8 @@
         stream_height: Number(parts[1]),
         stream_show_unknown_distance: form.stream_show_unknown_distance.checked,
         embedding_refresh_sec: Number(form.embedding_refresh_sec.value),
+        roi_timer_switch_sec: Number(form.roi_timer_switch_sec?.value || 60),
+        roi_timer_reset_grace_sec: Number(form.roi_timer_reset_grace_sec?.value || 7),
       };
       try {
         await request(API + "/settings/detection", {
@@ -903,6 +961,16 @@
     }
   }
 
+  async function ensureAnnotatedStream(cameraId) {
+    if (!currentUseAnnotated) return;
+    try {
+      await request(API + "/cameras/" + cameraId + "/stream/start", { method: "POST" });
+    } catch (err) {
+      setStatus(err.message, true);
+      throw err;
+    }
+  }
+
   function openStream(cameraId, cameraName, useAnnotated) {
     currentStreamName = useAnnotated ? "cam" + cameraId + "_annot" : "cam" + cameraId;
     currentCameraId = String(cameraId);
@@ -917,8 +985,21 @@
     if (window.DF_setStreamCameraId) window.DF_setStreamCameraId(String(cameraId));
     setStreamState("connecting");
     setStatus(t("connecting", { name: currentStreamName }));
-    connectMp4();
-    refreshRecordingUi().catch(function () {});
+    const startView = function () {
+      connectMp4();
+      refreshRecordingUi().catch(function () {});
+    };
+    if (useAnnotated) {
+      ensureAnnotatedStream(cameraId)
+        .then(function () {
+          setTimeout(startView, 400);
+        })
+        .catch(function () {
+          scheduleReconnect();
+        });
+    } else {
+      startView();
+    }
   }
 
   function closeStream() {
@@ -1180,6 +1261,7 @@
     const camSelect = document.getElementById("rec-camera-select");
     const dateSelect = document.getElementById("rec-date-select");
     const list = document.getElementById("rec-file-list");
+    const dayTimelineEl = document.getElementById("rec-day-timeline");
     const video = document.getElementById("rec-video");
     const title = document.getElementById("rec-player-title");
     const prevBtn = document.getElementById("rec-prev-btn");
@@ -1187,6 +1269,7 @@
 
     let currentFiles = [];
     let currentIndex = -1;
+    let dayTimeline = null;
 
     if (!camSelect || !dateSelect || !list) return;
 
@@ -1230,14 +1313,44 @@
       });
     }
 
+    async function loadDayTimeline(camId, camName, date) {
+      if (!dayTimelineEl) return;
+      dayTimelineEl.innerHTML = "<p class=\"help-text\">" + t("loading") + "</p>";
+      try {
+        dayTimeline = await request(
+          API +
+            "/recordings/" +
+            camId +
+            "/" +
+            encodeURIComponent(camName) +
+            "/" +
+            encodeURIComponent(date) +
+            "/timeline"
+        );
+        dayTimeline.date = date;
+        dayTimelineEl.innerHTML = "";
+        if (window.DF_renderTimeline) {
+          window.DF_renderTimeline(dayTimelineEl, dayTimeline, { mode: "day" });
+        }
+      } catch (e) {
+        dayTimeline = null;
+        dayTimelineEl.innerHTML = "<p class=\"help-text\">" + e.message + "</p>";
+      }
+    }
+
     async function loadFiles() {
       const camId = camSelect.value;
       const camName = camSelect.options[camSelect.selectedIndex]?.dataset?.name || "";
       const date = dateSelect.value;
       if (!camId || !camName || !date) {
         list.innerHTML = "<p class=\"help-text\">" + t("recSelectHint") + "</p>";
+        if (dayTimelineEl) {
+          dayTimelineEl.innerHTML = "<p class=\"help-text\">" + t("recTimelineDayHint") + "</p>";
+        }
+        dayTimeline = null;
         return;
       }
+      await loadDayTimeline(camId, camName, date);
       const files = await request(
         API + "/recordings/" + camId + "/" + encodeURIComponent(camName) + "/" + encodeURIComponent(date)
       );
@@ -1252,13 +1365,25 @@
       files.forEach(function (f) {
         const row = document.createElement("div");
         row.className = "rec-item";
+        const head = document.createElement("div");
+        head.className = "rec-item-head";
         const left = document.createElement("div");
         const nm = document.createElement("div");
         nm.className = "rec-item-title";
         nm.textContent = f.filename;
         const meta = document.createElement("div");
         meta.className = "rec-item-meta";
-        meta.textContent = (f.size ? Math.round(f.size / 1024 / 1024) + " MB" : "") + (f.mtime ? " · " + new Date(f.mtime * 1000).toLocaleString() : "");
+        let metaTxt = f.size ? Math.round(f.size / 1024 / 1024) + " MB" : "";
+        if (f.start_ts && f.end_ts) {
+          metaTxt +=
+            (metaTxt ? " · " : "") +
+            new Date(f.start_ts * 1000).toLocaleTimeString() +
+            " – " +
+            new Date(f.end_ts * 1000).toLocaleTimeString();
+        } else if (f.mtime) {
+          metaTxt += (metaTxt ? " · " : "") + new Date(f.mtime * 1000).toLocaleString();
+        }
+        meta.textContent = metaTxt;
         left.appendChild(nm);
         left.appendChild(meta);
         const right = document.createElement("div");
@@ -1292,8 +1417,52 @@
         });
         right.appendChild(playBtn);
         right.appendChild(delBtn);
-        row.appendChild(left);
-        row.appendChild(right);
+        head.appendChild(left);
+        head.appendChild(right);
+        row.appendChild(head);
+
+        if (window.DF_renderTimelineCollapsible && f.start_ts && f.end_ts) {
+          (async function (rowEl, file) {
+            let clipTl = {
+              date: date,
+              range_start: file.start_ts,
+              range_end: file.end_ts,
+              shift: (dayTimeline && dayTimeline.shift) || { enabled: false },
+              zones: [],
+            };
+            try {
+              clipTl = await request(
+                API +
+                  "/recordings/" +
+                  camId +
+                  "/" +
+                  encodeURIComponent(camName) +
+                  "/" +
+                  encodeURIComponent(date) +
+                  "/timeline?from_ts=" +
+                  file.start_ts +
+                  "&to_ts=" +
+                  file.end_ts
+              );
+              clipTl.date = date;
+            } catch (_) {
+              if (dayTimeline && window.DF_filterTimeline) {
+                clipTl = window.DF_filterTimeline(
+                  dayTimeline,
+                  file.start_ts,
+                  file.end_ts
+                );
+                clipTl.date = date;
+                if (dayTimeline.shift) clipTl.shift = dayTimeline.shift;
+              }
+            }
+            window.DF_renderTimelineCollapsible(rowEl, clipTl, {
+              clipStart: file.start_ts,
+              clipEnd: file.end_ts,
+            });
+          })(row, f);
+        }
+
         list.appendChild(row);
       });
       updateNavButtons();

@@ -71,9 +71,13 @@ class FaceStreamManager:
         self.cfg.STREAM_HEIGHT = settings.stream_height
         self.cfg.STREAM_SHOW_UNKNOWN_DISTANCE = settings.stream_show_unknown_distance
         self.cfg.EMBEDDING_REFRESH_SEC = settings.embedding_refresh_sec
+        self.cfg.ROI_TIMER_SWITCH_SEC = settings.roi_timer_switch_sec
+        self.cfg.ROI_TIMER_RESET_GRACE_SEC = settings.roi_timer_reset_grace_sec
         self.face_store.refresh_interval_sec = settings.embedding_refresh_sec
 
         for streamer in self.streamers.values():
+            streamer.roi_switch_seconds = settings.roi_timer_switch_sec
+            streamer.roi_reset_grace_seconds = settings.roi_timer_reset_grace_sec
             streamer.config.detection_mode = settings.detection_mode
             streamer.config.det_conf = settings.fr_det_conf
             streamer.config.det_nms = settings.fr_det_nms
@@ -97,7 +101,8 @@ class FaceStreamManager:
         log.info(
             f"Detection settings applied: mode={settings.detection_mode} "
             f"conf={settings.fr_det_conf:.2f} distance={settings.fr_distance:.2f} "
-            f"interval={settings.stream_frame_interval}"
+            f"interval={settings.stream_frame_interval} "
+            f"roi_switch={settings.roi_timer_switch_sec:.0f}s"
         )
 
     def reload_embeddings(self) -> int:

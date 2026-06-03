@@ -69,6 +69,35 @@ def point_in_any_polygon(
     return any(point_in_polygon(point, poly) for poly in polygons)
 
 
+def polygon_area(polygon: list[tuple[float, float]]) -> float:
+    """Площадь полигона в нормализованных координатах (0–1)."""
+    if len(polygon) < 3:
+        return 0.0
+    area = 0.0
+    n = len(polygon)
+    for i in range(n):
+        x1, y1 = polygon[i]
+        x2, y2 = polygon[(i + 1) % n]
+        area += x1 * y2 - x2 * y1
+    return abs(area) * 0.5
+
+
+def assign_detection_to_roi(
+    point: tuple[float, float],
+    polygons: list[list[tuple[float, float]]],
+) -> int | None:
+    """Индекс наименьшего полигона, содержащего точку (при перекрытии зон)."""
+    best_idx: int | None = None
+    best_area = float("inf")
+    for idx, poly in enumerate(polygons):
+        if point_in_polygon(point, poly):
+            area = polygon_area(poly)
+            if area < best_area:
+                best_area = area
+                best_idx = idx
+    return best_idx
+
+
 def scale_polygons_to_pixels(
     polygons: list[list[tuple[float, float]]], width: int, height: int
 ) -> list[list[tuple[int, int]]]:

@@ -3,6 +3,7 @@
 Сохраняет RTSP-потоки в mp4-ролики сегментами и чистит старые записи.
 """
 
+import re
 import subprocess
 import threading
 import time
@@ -180,15 +181,72 @@ class RecordingService:
         cam_dir = base / f"cam{camera_id}_{camera_name}" / date
         if not cam_dir.exists():
             return []
+        files = sorted(cam_dir.glob("*.mp4"), key=lambda p: p.name)
+        chunk_sec = int(self.settings.chunk_duration_min) * 60
         recordings = []
-        for f in sorted(cam_dir.glob("*.mp4")):
+        for i, f in enumerate(files):
             stat = f.stat()
+            start_ts, end_ts = self._clip_range_unix(
+                f.name, date, files, i, chunk_sec, stat.st_mtime
+            )
             recordings.append({
                 "filename": f.name,
                 "size": stat.st_size,
                 "mtime": int(stat.st_mtime),
+                "start_ts": start_ts,
+                "end_ts": end_ts,
             })
         return recordings
+
+    @staticmethod
+    def _clip_range_unix(
+        filename: str,
+        date_str: str,
+        files: list[Path],
+        index: int,
+        chunk_sec: int,
+        mtime: float,
+    ) -> tuple[float | None, float | None]:
+        m = re.match(r"^(\d{2})(\d{2})(\d{2})\.mp4$", filename)
+        if not m:
+            return None, None
+        try:
+            from src.services.roi_timer_store import RoiTimerStore
+
+            day_start, _ = RoiTimerStore.day_range_unix(date_str)
+            hh, mm, ss = int(m.group(1)), int(m.group(2)), int(m.group(3))
+            start = day_start + hh * 3600 + mm * 60 + ss
+            end = start + chunk_sec
+            if index + 1 < len(files):
+                nxt = files[index + 1].name
+                nm = re.match(r"^(\d{2})(\d{2})(\d{2})\.mp4$", nxt)
+                if nm:
+                    nh, nmi, ns = int(nm.group(1)), int(nm.group(2)), int(nm.group(3))
+                    next_start = day_start + nh * 3600 + nmi * 60 + ns
+                    if next_start > start:
+                        end = min(end, next_start)
+            if mtime and mtime > start:
+                end = min(end, mtime + 1)
+            return start, end
+        except Exception:
+            return None, None
+
+    def build_clips_for_timeline(
+        self, camera_id: int, camera_name: str, date: str
+    ) -> list[dict]:
+        items = self.get_recordings_list(camera_id, camera_name, date)
+        clips = []
+        for it in items:
+            if it.get("start_ts") is None or it.get("end_ts") is None:
+                continue
+            clips.append(
+                {
+                    "filename": it["filename"],
+                    "start": float(it["start_ts"]),
+                    "end": float(it["end_ts"]),
+                }
+            )
+        return clips
 
     def get_available_dates(self, camera_id: int, camera_name: str) -> list[str]:
         """Get list of dates with recordings."""

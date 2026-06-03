@@ -99,6 +99,7 @@ def main_api(cfg: Configs) -> None:
     app.include_router(enroll_api.router, prefix="/api/v1", tags=["enrollment"])
 
     from src.api.recording_api import RecordingApi
+    from src.services.roi_timer_store import RoiTimerStore
     from src.schema.settings_schema import RecordingSettingsSchema
     from src.services.recording_service import init_recording_service
     from src.services.recording_settings_store import RecordingSettingsStore
@@ -112,7 +113,7 @@ def main_api(cfg: Configs) -> None:
     if svc:
         svc.set_camera_provider(camera_store.list)
 
-    recording_api = RecordingApi(rec_store)
+    recording_api = RecordingApi(rec_store, RoiTimerStore(pg), settings_store)
     app.include_router(recording_api.router, prefix="/api/v1", tags=["recordings"])
 
     if cfg.SERVER == "gunicorn":

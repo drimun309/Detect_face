@@ -256,6 +256,47 @@
               </section>
 
               <section class="settings-section">
+                <h2 class="section-title" data-i18n="sectionRoiTimer">ROI: работа / простой</h2>
+                <div class="form-grid">
+                  <div class="form-group">
+                    <label for="roi_timer_switch_sec" data-i18n="roiTimerSwitch"
+                      >Порог смены режима (сек)</label
+                    >
+                    <input
+                      id="roi_timer_switch_sec"
+                      name="roi_timer_switch_sec"
+                      type="number"
+                      min="5"
+                      max="300"
+                      value="60"
+                      class="form-input"
+                    />
+                    <p class="help-text" data-i18n="roiTimerSwitchHelp">
+                      Сколько секунд подряд человек должен быть / отсутствовать в зоне, чтобы
+                      записать «работа» или «простой» в журнал.
+                    </p>
+                  </div>
+                  <div class="form-group">
+                    <label for="roi_timer_reset_grace_sec" data-i18n="roiTimerGrace"
+                      >Пауза детекции (сек)</label
+                    >
+                    <input
+                      id="roi_timer_reset_grace_sec"
+                      name="roi_timer_reset_grace_sec"
+                      type="number"
+                      min="0"
+                      max="60"
+                      value="7"
+                      class="form-input"
+                    />
+                    <p class="help-text" data-i18n="roiTimerGraceHelp">
+                      Краткое пропадание bbox не считается уходом из зоны.
+                    </p>
+                  </div>
+                </div>
+              </section>
+
+              <section class="settings-section">
                 <h2 class="section-title" data-i18n="sectionStream">Поток и производительность</h2>
                 <div class="form-grid">
                   <div class="form-group">
@@ -425,6 +466,15 @@
 
             <section class="settings-section">
               <div class="section-header">
+                <h2 class="section-title" data-i18n="recordingsDayTimeline">День: работа и простой</h2>
+              </div>
+              <div id="rec-day-timeline" class="rec-day-timeline-wrap">
+                <p class="help-text" data-i18n="recTimelineDayHint">Выберите камеру и дату</p>
+              </div>
+            </section>
+
+            <section class="settings-section">
+              <div class="section-header">
                 <h2 class="section-title" data-i18n="recordingsList">Ролики</h2>
               </div>
               <div id="rec-file-list" class="rec-file-list">
@@ -554,6 +604,7 @@
     </div>
 
     <script src="/roi.js" charset="UTF-8"></script>
-    <script src="/app.js?v=21" charset="UTF-8"></script>
+    <script src="/rec-timeline.js?v=5" charset="UTF-8"></script>
+    <script src="/app.js?v=31" charset="UTF-8"></script>
   </body>
 </html>

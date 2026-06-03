@@ -23,6 +23,8 @@ class SettingsStore:
             stream_height=cfg.STREAM_HEIGHT,
             stream_show_unknown_distance=cfg.STREAM_SHOW_UNKNOWN_DISTANCE,
             embedding_refresh_sec=cfg.EMBEDDING_REFRESH_SEC,
+            roi_timer_switch_sec=cfg.ROI_TIMER_SWITCH_SEC,
+            roi_timer_reset_grace_sec=cfg.ROI_TIMER_RESET_GRACE_SEC,
         )
 
     def get(self) -> DetectionSettingsSchema:
