@@ -22,6 +22,9 @@
           <button type="button" class="nav-tab" data-tab="recordings" data-i18n="tabRecordings">
             Записи
           </button>
+          <button type="button" class="nav-tab" data-tab="stats" data-i18n="tabStats">
+            Статистика
+          </button>
         </div>
         <div class="lang-switch">
           <button type="button" class="lang-btn active" data-lang="ru">RU</button>
@@ -32,11 +35,14 @@
       <main class="app-content">
         <!-- Камеры -->
         <div id="tab-cameras" class="tab-panel active">
-          <div class="page-wrap">
+          <div class="page-wrap page-wrap-wide">
             <section class="settings-section">
               <div class="section-header">
                 <h2 class="section-title" data-i18n="cameras">Камеры</h2>
                 <div class="button-group">
+                  <button id="add-department-btn" type="button" class="btn btn-secondary" data-i18n="addDepartment">
+                    Добавить отдел
+                  </button>
                   <button id="add-camera-btn" type="button" class="btn btn-primary" data-i18n="addCamera">
                     Добавить камеру
                   </button>
@@ -53,16 +59,16 @@
                   </button>
                 </div>
               </div>
-              <div class="table-wrap">
-                <table>
+              <div class="table-wrap cameras-table-wrap">
+                <table class="cameras-table">
                   <thead>
                     <tr>
-                      <th data-i18n="id">ID</th>
-                      <th data-i18n="name">Имя</th>
-                      <th data-i18n="rtsp">RTSP</th>
-                      <th data-i18n="enabled">Вкл.</th>
-                      <th data-i18n="detection">Детекция</th>
-                      <th data-i18n="actions">Действия</th>
+                      <th class="col-id" data-i18n="id">ID</th>
+                      <th class="col-name" data-i18n="name">Имя</th>
+                      <th class="col-ip" data-i18n="ip">IP</th>
+                      <th class="col-enabled" data-i18n="enabled">Вкл.</th>
+                      <th class="col-detection" data-i18n="detection">Детекция</th>
+                      <th class="col-actions" data-i18n="actions">Действия</th>
                     </tr>
                   </thead>
                   <tbody id="camera-table"></tbody>
@@ -437,6 +443,95 @@
           </div>
         </div>
 
+        <!-- Статистика -->
+        <div id="tab-stats" class="tab-panel">
+          <div class="page-wrap">
+            <div class="page-header">
+              <h1 data-i18n="statsTitle">Статистика ROI</h1>
+              <p class="help-text" data-i18n="statsHint">
+                Работа и простой по рабочим зонам из базы данных
+              </p>
+            </div>
+
+            <section class="settings-section">
+              <div class="section-header">
+                <h2 class="section-title" data-i18n="statsFilters">Фильтры</h2>
+              </div>
+              <div class="form-grid stats-filters-row">
+                <div class="form-group">
+                  <label for="stats-department-select" data-i18n="department">Отдел</label>
+                  <select id="stats-department-select" class="form-select">
+                    <option value="" data-i18n="selectDepartment">-- Выберите отдел --</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="stats-camera-select" data-i18n="camera">Камера</label>
+                  <select id="stats-camera-select" class="form-select" disabled>
+                    <option value="" data-i18n="statsSelectDepartmentFirst">-- Сначала выберите отдел --</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="stats-from-date" data-i18n="statsFrom">С</label>
+                  <input id="stats-from-date" type="date" class="form-input" />
+                </div>
+                <div class="form-group">
+                  <label for="stats-to-date" data-i18n="statsTo">По</label>
+                  <input id="stats-to-date" type="date" class="form-input" />
+                </div>
+              </div>
+              <div class="form-group">
+                <label data-i18n="statsPeriod">Период</label>
+                <div id="stats-period-chips" class="period-chips"></div>
+              </div>
+            </section>
+
+            <section class="settings-section">
+              <div class="section-header">
+                <h2 class="section-title" data-i18n="statsTableTitle">По дням</h2>
+                <span id="stats-summary" class="help-text"></span>
+              </div>
+              <div class="table-wrap">
+                <table class="stats-table">
+                  <thead>
+                    <tr>
+                      <th data-i18n="date">Дата</th>
+                      <th data-i18n="statsWork">Работа</th>
+                      <th data-i18n="statsIdle">Простой</th>
+                      <th data-i18n="statsZones">Зон</th>
+                    </tr>
+                  </thead>
+                  <tbody id="stats-table-body">
+                    <tr>
+                      <td colspan="4" class="help-text" data-i18n="statsSelectFilters">
+                        Выберите камеру и период
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section id="stats-day-detail" class="settings-section hidden">
+              <div class="section-header">
+                <h2 id="stats-day-detail-title" class="section-title">—</h2>
+              </div>
+              <div class="table-wrap stats-zones-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th data-i18n="statsZone">Рабочая зона</th>
+                      <th data-i18n="statsWork">Работа</th>
+                      <th data-i18n="statsIdle">Простой</th>
+                    </tr>
+                  </thead>
+                  <tbody id="stats-zones-table-body"></tbody>
+                </table>
+              </div>
+              <div id="stats-day-timeline" class="rec-day-timeline-wrap stats-day-timeline"></div>
+            </section>
+          </div>
+        </div>
+
         <!-- Записи -->
         <div id="tab-recordings" class="tab-panel">
           <div class="page-wrap">
@@ -450,9 +545,15 @@
               </div>
               <div class="form-grid">
                 <div class="form-group">
+                  <label for="rec-department-select" data-i18n="department">Отдел</label>
+                  <select id="rec-department-select" class="form-select">
+                    <option value="" data-i18n="selectDepartment">-- Выберите отдел --</option>
+                  </select>
+                </div>
+                <div class="form-group">
                   <label for="rec-camera-select" data-i18n="camera">Камера</label>
-                  <select id="rec-camera-select" name="camera_id" class="form-select">
-                    <option value="" data-i18n="selectCamera">-- Выберите камеру --</option>
+                  <select id="rec-camera-select" name="camera_id" class="form-select" disabled>
+                    <option value="" data-i18n="statsSelectDepartmentFirst">-- Сначала выберите отдел --</option>
                   </select>
                 </div>
                 <div class="form-group">
@@ -520,6 +621,27 @@
       </div>
     </div>
 
+    <div id="department-modal" class="modal hidden" aria-hidden="true">
+      <div class="modal-backdrop" id="department-modal-backdrop"></div>
+      <div class="modal-dialog" role="dialog" aria-labelledby="department-form-title">
+        <button type="button" class="modal-close" id="department-modal-close" aria-label="Close">&times;</button>
+        <h2 id="department-form-title" class="modal-title" data-i18n="addDepartment">Добавить отдел</h2>
+        <form id="department-form">
+          <div class="form-group">
+            <label for="department-name" data-i18n="departmentName">Название отдела</label>
+            <input id="department-name" name="name" class="form-input" required placeholder="Отдел сборки" />
+          </div>
+          <p id="department-form-msg" class="help-text"></p>
+          <div class="button-group">
+            <button type="submit" class="btn btn-primary" data-i18n="saveDepartment">Сохранить</button>
+            <button type="button" id="department-cancel-btn" class="btn btn-secondary" data-i18n="cancelEdit">
+              Отмена
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
     <div id="camera-modal" class="modal hidden" aria-hidden="true">
       <div class="modal-backdrop" id="camera-modal-backdrop"></div>
       <div class="modal-dialog" role="dialog" aria-labelledby="camera-form-title">
@@ -527,6 +649,12 @@
         <h2 id="camera-form-title" class="modal-title" data-i18n="addCamera">Добавить камеру</h2>
         <form id="camera-form" class="form-grid">
           <input type="hidden" id="camera-edit-id" name="camera_id" value="" />
+          <div class="form-group form-group-full">
+            <label for="camera-department" data-i18n="department">Отдел</label>
+            <select id="camera-department" name="department_id" class="form-select">
+              <option value="" data-i18n="noDepartment">Без отдела</option>
+            </select>
+          </div>
           <div class="form-group">
             <label data-i18n="name">Имя</label>
             <input class="form-input" name="name" required placeholder="Камера 1" />
@@ -590,10 +718,11 @@
           </div>
         </div>
         <div class="player-wrap rec-player-wrap">
-          <video id="rec-video" controls playsinline></video>
+          <video id="rec-video" playsinline preload="metadata"></video>
         </div>
         <div class="rec-controls">
-          <input id="rec-progress" type="range" min="0" max="100" value="0" class="rec-progress" />
+          <button type="button" id="rec-play-btn" class="btn btn-secondary rec-play-btn" aria-label="Play">▶</button>
+          <input id="rec-progress" type="range" min="0" max="0" step="0.1" value="0" class="rec-progress" disabled />
           <span id="rec-time-display">00:00 / 00:00</span>
         </div>
         <div class="button-group rec-nav">
@@ -604,7 +733,8 @@
     </div>
 
     <script src="/roi.js" charset="UTF-8"></script>
-    <script src="/rec-timeline.js?v=5" charset="UTF-8"></script>
-    <script src="/app.js?v=31" charset="UTF-8"></script>
+    <script src="/rec-timeline.js?v=7" charset="UTF-8"></script>
+    <script src="/stats.js?v=2" charset="UTF-8"></script>
+    <script src="/app.js?v=36" charset="UTF-8"></script>
   </body>
 </html>

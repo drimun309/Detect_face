@@ -16,6 +16,7 @@ class CameraBaseSchema(BaseModel):
     protocol: Literal["rtsp"] = "rtsp"
     path: str = Field("/Streaming/Channels/101", min_length=1, max_length=255)
     enabled: bool = True
+    department_id: Optional[int] = None
 
     @field_validator("path")
     @classmethod
@@ -39,6 +40,7 @@ class CameraUpdateSchema(BaseModel):
     protocol: Optional[Literal["rtsp"]] = None
     path: Optional[str] = Field(None, min_length=1, max_length=255)
     enabled: Optional[bool] = None
+    department_id: Optional[int] = None
 
     @field_validator("path")
     @classmethod
@@ -54,6 +56,7 @@ class CameraSchema(CameraBaseSchema):
 
     id: int
     roi_enabled: bool = False
+    department_name: Optional[str] = None
 
 
 class CameraListSchema(BaseModel):

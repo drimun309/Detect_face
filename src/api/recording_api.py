@@ -2,9 +2,12 @@
 
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException, Query
+from pathlib import Path
+
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 
+from src.schema.roi_stats_schema import RoiDailyStatsRangeResponse, RoiStatDatesResponse
 from src.schema.roi_timeline_schema import RoiTimelineResponse, TimelineShift
 from src.schema.settings_schema import RecordingSettingsSchema
 from src.services.recording_service import get_recording_service
@@ -12,6 +15,7 @@ from src.services.recording_settings_store import RecordingSettingsStore
 from src.services.roi_timer_store import RoiTimerStore
 from src.services.settings_store import SettingsStore
 from src.streaming.stream_manager import get_stream_manager
+from src.utils.range_file import video_file_response
 
 
 class RecordingApi:
@@ -51,6 +55,15 @@ class RecordingApi:
             end_sec=end_sec,
         )
 
+    def _roi_timer_store(self) -> RoiTimerStore | None:
+        store = self.roi_timer_store
+        if store is None:
+            try:
+                store = get_stream_manager().roi_timer_store
+            except RuntimeError:
+                store = None
+        return store
+
     def setup(self) -> None:
         @self.router.get("/settings/recording", response_model=RecordingSettingsSchema)
         async def get_recording_settings() -> RecordingSettingsSchema:
@@ -70,6 +83,82 @@ class RecordingApi:
             return saved
 
         @self.router.get(
+            "/roi-stats/{camera_id}/dates",
+            response_model=RoiStatDatesResponse,
+        )
+        async def get_roi_stat_dates(camera_id: int) -> RoiStatDatesResponse:
+            store = self._roi_timer_store()
+            dates: list[str] = []
+            if store is not None:
+                dates = store.get_stat_dates(camera_id)
+            return RoiStatDatesResponse(camera_id=camera_id, dates=dates)
+
+        @self.router.get(
+            "/roi-stats/{camera_id}/daily",
+            response_model=RoiDailyStatsRangeResponse,
+        )
+        async def get_roi_daily_stats(
+            camera_id: int,
+            from_date: str = Query(..., alias="from", description="YYYY-MM-DD"),
+            to_date: str = Query(..., alias="to", description="YYYY-MM-DD"),
+        ) -> RoiDailyStatsRangeResponse:
+            store = self._roi_timer_store()
+            if store is None:
+                return RoiDailyStatsRangeResponse(
+                    camera_id=camera_id,
+                    from_date=from_date,
+                    to_date=to_date,
+                    timezone="UTC",
+                    days=[],
+                )
+            raw = store.get_daily_stats_range(camera_id, from_date, to_date)
+            return RoiDailyStatsRangeResponse(**raw)
+
+        @self.router.get(
+            "/roi-stats/{camera_id}/{date}/timeline",
+            response_model=RoiTimelineResponse,
+        )
+        async def get_roi_stat_timeline(
+            camera_id: int,
+            date: str,
+            from_ts: float | None = Query(None, description="Начало интервала (unix)"),
+            to_ts: float | None = Query(None, description="Конец интервала (unix)"),
+        ) -> RoiTimelineResponse:
+            store = self._roi_timer_store()
+            switch_sec = 60.0
+            if self.settings_store is not None:
+                switch_sec = self.settings_store.get().roi_timer_switch_sec
+            if store is not None:
+                raw = store.get_timeline(
+                    camera_id, date, from_ts, to_ts, switch_sec=switch_sec
+                )
+            else:
+                raw = {
+                    "camera_id": camera_id,
+                    "date": date,
+                    "range_start": 0,
+                    "range_end": 0,
+                    "day_end": 0,
+                    "zones": [],
+                    "events_in_range": 0,
+                    "timezone": "UTC",
+                }
+            rec = get_recording_service()
+            settings = rec.settings if rec else self.store.get()
+            return RoiTimelineResponse(
+                camera_id=camera_id,
+                date=date,
+                range_start=raw["range_start"],
+                range_end=raw["range_end"],
+                day_end=float(raw.get("day_end") or raw["range_end"]),
+                shift=self._shift_meta(settings),
+                zones=raw["zones"],
+                clips=[],
+                events_in_range=int(raw.get("events_in_range") or 0),
+                timezone=str(raw.get("timezone") or "UTC"),
+            )
+
+        @self.router.get(
             "/recordings/{camera_id}/{camera_name}/{date}/timeline",
             response_model=RoiTimelineResponse,
         )
@@ -80,12 +169,7 @@ class RecordingApi:
             from_ts: float | None = Query(None, description="Начало интервала (unix)"),
             to_ts: float | None = Query(None, description="Конец интервала (unix)"),
         ) -> RoiTimelineResponse:
-            store = self.roi_timer_store
-            if store is None:
-                try:
-                    store = get_stream_manager().roi_timer_store
-                except RuntimeError:
-                    store = None
+            store = self._roi_timer_store()
             switch_sec = 60.0
             if self.settings_store is not None:
                 switch_sec = self.settings_store.get().roi_timer_switch_sec
@@ -144,18 +228,22 @@ class RecordingApi:
 
         @self.router.get("/recordings/{camera_id}/{camera_name}/{date}/{filename}/file")
         async def get_recording_file(
+            request: Request,
             camera_id: int,
             camera_name: str,
             date: str,
             filename: str,
-        ) -> FileResponse:
+        ):
             service = get_recording_service()
             if not service:
                 raise HTTPException(status_code=404, detail="Recording service not initialized")
-            path = service.get_file_path(camera_id, camera_name, date, filename)
+            path = Path(service.get_file_path(camera_id, camera_name, date, filename))
             if not path.exists():
                 raise HTTPException(status_code=404, detail="File not found")
-            return FileResponse(path, media_type="video/mp4", filename=filename)
+            try:
+                return video_file_response(request, path)
+            except FileNotFoundError:
+                raise HTTPException(status_code=404, detail="File not found") from None
 
         @self.router.get("/recordings/{camera_id}/status")
         async def get_recording_status(camera_id: int) -> dict:

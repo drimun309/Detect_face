@@ -31,6 +31,9 @@ RUN pip install --no-cache-dir --retries 5 --timeout 600 -r /tmp/requirements.tx
 
 RUN rm /tmp/requirements.txt
 
+# CUDA libs for onnxruntime-gpu (curand, cufft, cudart from nvidia-* pip wheels)
+ENV LD_LIBRARY_PATH=/usr/local/lib:/usr/local/lib/python3.10/site-packages/nvidia/cublas/lib:/usr/local/lib/python3.10/site-packages/nvidia/cudnn/lib:/usr/local/lib/python3.10/site-packages/nvidia/curand/lib:/usr/local/lib/python3.10/site-packages/nvidia/cufft/lib:/usr/local/lib/python3.10/site-packages/nvidia/cuda_runtime/lib:/usr/local/lib/python3.10/site-packages/nvidia/nccl/lib
+
 # Create symlinks for CUDA libraries so onnxruntime-gpu can find them
 RUN for dir in /usr/local/lib/python3.10/site-packages/nvidia/*/lib; do \
         if [ -d "$dir" ]; then \

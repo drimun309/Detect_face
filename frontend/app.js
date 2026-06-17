@@ -7,7 +7,41 @@
       tabSettings: "Настройки",
       tabEnroll: "Регистрация лиц",
       tabRecordings: "Записи",
+      tabStats: "Статистика",
+      statsTitle: "Статистика ROI",
+      statsHint: "Работа и простой по рабочим зонам (07:00–19:00, данные из БД)",
+      statsFilters: "Фильтры",
+      statsFrom: "С",
+      statsTo: "По",
+      statsPeriod: "Период",
+      statsPeriodDays: "{n} дн.",
+      statsPeriodAll: "Все данные",
+      statsTableTitle: "По дням",
+      statsWork: "Работа",
+      statsIdle: "Простой",
+      statsZones: "Зон",
+      statsZone: "Рабочая зона",
+      statsZoneLabel: "Зона {n}",
+      statsSelectFilters: "Выберите отдел, камеру и период",
+      selectDepartment: "-- Выберите отдел --",
+      statsSelectDepartmentFirst: "-- Сначала выберите отдел --",
+      statsNoCamerasInDept: "В этом отделе нет камер",
+      statsNoData: "Нет данных за выбранный период",
+      statsNoZones: "Нет зон за этот день",
+      statsSummary: "{days} дн. · 07:00–19:00 · работа {work} · простой {idle}",
+      statsDayDetail: "Детализация: {date}",
+      date: "Дата",
+      camera: "Камера",
       addCamera: "Добавить камеру",
+      addDepartment: "Добавить отдел",
+      department: "Отдел",
+      noDepartment: "Без отдела",
+      departmentName: "Название отдела",
+      saveDepartment: "Сохранить отдел",
+      confirmDeleteDepartment: "Удалить отдел «{name}»? Камеры останутся без отдела.",
+      departmentSaved: "Отдел создан",
+      departmentDeleted: "Отдел удалён",
+      camerasCount: "{n} кам.",
       cameras: "Камеры",
       syncGo2rtc: "Синхр. go2rtc",
       reloadFacesDb: "Обновить БД лиц",
@@ -75,7 +109,9 @@
       selectCamera: "-- Выберите камеру --",
       selectDate: "-- Сначала выберите камеру --",
       recordingsList: "Ролики",
-      recSelectHint: "Выберите камеру и дату для просмотра записей",
+      recSelectHint: "Выберите отдел, камеру и дату для просмотра записей",
+      recPlay: "Смотреть",
+      recPause: "Пауза",
       play: "Смотреть",
       recordingsDayTimeline: "День: работа и простой",
       recTimelineDayHint: "Выберите камеру и дату для диаграммы за день",
@@ -173,7 +209,41 @@
       tabSettings: "Settings",
       tabEnroll: "Enroll faces",
       tabRecordings: "Recordings",
+      tabStats: "Statistics",
+      statsTitle: "ROI statistics",
+      statsHint: "Work and idle per zone (07:00–19:00, from database)",
+      statsFilters: "Filters",
+      statsFrom: "From",
+      statsTo: "To",
+      statsPeriod: "Period",
+      statsPeriodDays: "{n} days",
+      statsPeriodAll: "All data",
+      statsTableTitle: "By day",
+      statsWork: "Work",
+      statsIdle: "Idle",
+      statsZones: "Zones",
+      statsZone: "Work zone",
+      statsZoneLabel: "Zone {n}",
+      statsSelectFilters: "Select department, camera and period",
+      selectDepartment: "-- Select department --",
+      statsSelectDepartmentFirst: "-- Select department first --",
+      statsNoCamerasInDept: "No cameras in this department",
+      statsNoData: "No data for the selected period",
+      statsNoZones: "No zones for this day",
+      statsSummary: "{days} days · 07:00–19:00 · work {work} · idle {idle}",
+      statsDayDetail: "Details: {date}",
+      date: "Date",
+      camera: "Camera",
       addCamera: "Add camera",
+      addDepartment: "Add department",
+      department: "Department",
+      noDepartment: "No department",
+      departmentName: "Department name",
+      saveDepartment: "Save department",
+      confirmDeleteDepartment: "Delete department «{name}»? Cameras will be unassigned.",
+      departmentSaved: "Department created",
+      departmentDeleted: "Department deleted",
+      camerasCount: "{n} cam.",
       cameras: "Cameras",
       syncGo2rtc: "Sync go2rtc",
       reloadFacesDb: "Reload faces DB",
@@ -241,7 +311,9 @@
       selectCamera: "-- Select camera --",
       selectDate: "-- Select date --",
       recordingsList: "Files",
-      recSelectHint: "Select camera and date to view recordings",
+      recSelectHint: "Select department, camera and date to view recordings",
+      recPlay: "Play",
+      recPause: "Pause",
       play: "Play",
       recordingsDayTimeline: "Day: work & idle",
       recTimelineDayHint: "Select camera and date for the day chart",
@@ -544,7 +616,17 @@
   const cameraModalBackdrop = document.getElementById("camera-modal-backdrop");
   const cameraModalClose = document.getElementById("camera-modal-close");
   const addCameraBtn = document.getElementById("add-camera-btn");
+  const addDepartmentBtn = document.getElementById("add-department-btn");
+  const departmentModal = document.getElementById("department-modal");
+  const departmentModalBackdrop = document.getElementById("department-modal-backdrop");
+  const departmentModalClose = document.getElementById("department-modal-close");
+  const departmentForm = document.getElementById("department-form");
+  const departmentFormMsg = document.getElementById("department-form-msg");
+  const departmentCancelBtn = document.getElementById("department-cancel-btn");
+  const cameraDepartmentSelect = document.getElementById("camera-department");
   let editingCameraId = null;
+  let departmentsCache = [];
+  const collapsedDepts = new Set();
 
   function openCameraModal() {
     if (!cameraModal) return;
@@ -616,9 +698,18 @@
     streamState.textContent = text;
   }
 
-  function rtspUrl(cam) {
-    const auth = cam.username && cam.password ? cam.username + ":***@" : "";
-    return cam.protocol + "://" + auth + cam.ip + ":" + cam.port + cam.path;
+  function cameraIpDisplay(cam) {
+    const raw = String(cam.ip || "").trim();
+    if (!raw) return "—";
+    if (/^[a-z][a-z0-9+.-]*:\/\//i.test(raw)) {
+      try {
+        return new URL(raw).hostname || raw;
+      } catch (_) {}
+    }
+    const hostPart = raw.split("/")[0];
+    const atIdx = hostPart.lastIndexOf("@");
+    if (atIdx >= 0) return hostPart.slice(atIdx + 1).split(":")[0] || raw;
+    return hostPart.split(":")[0] || raw;
   }
 
   function wsBaseViaNginx() {
@@ -827,6 +918,7 @@
   }
 
   function cameraPayloadFromForm(fd) {
+    const deptRaw = fd.get("department_id");
     return {
       name: String(fd.get("name") || "").trim(),
       ip: String(fd.get("ip") || "").trim(),
@@ -836,7 +928,52 @@
       password: (fd.get("password") && String(fd.get("password"))) || null,
       path: String(fd.get("path") || "/Streaming/Channels/101").trim(),
       enabled: fd.get("enabled") === "on",
+      department_id: deptRaw ? Number(deptRaw) : null,
     };
+  }
+
+  function openDepartmentModal() {
+    if (!departmentModal) return;
+    if (departmentForm) departmentForm.reset();
+    if (departmentFormMsg) departmentFormMsg.textContent = "";
+    departmentModal.classList.remove("hidden");
+    departmentModal.setAttribute("aria-hidden", "false");
+    document.body.style.overflow = "hidden";
+    const nameInput = document.getElementById("department-name");
+    if (nameInput) setTimeout(function () { nameInput.focus(); }, 50);
+  }
+
+  function closeDepartmentModal() {
+    if (!departmentModal) return;
+    departmentModal.classList.add("hidden");
+    departmentModal.setAttribute("aria-hidden", "true");
+    if (!cameraModal || cameraModal.classList.contains("hidden")) {
+      if (!streamModal || streamModal.classList.contains("hidden")) {
+        document.body.style.overflow = "";
+      }
+    }
+  }
+
+  async function loadDepartmentsForSelect(selectedId) {
+    if (!cameraDepartmentSelect) return;
+    try {
+      const data = await request(API + "/departments");
+      departmentsCache = data.items || [];
+    } catch (_) {
+      departmentsCache = [];
+    }
+    cameraDepartmentSelect.innerHTML = "";
+    const opt0 = document.createElement("option");
+    opt0.value = "";
+    opt0.textContent = t("noDepartment");
+    cameraDepartmentSelect.appendChild(opt0);
+    departmentsCache.forEach(function (dept) {
+      const opt = document.createElement("option");
+      opt.value = String(dept.id);
+      opt.textContent = dept.name;
+      cameraDepartmentSelect.appendChild(opt);
+    });
+    if (selectedId) cameraDepartmentSelect.value = String(selectedId);
   }
 
   function setCameraFormMode(editId) {
@@ -850,7 +987,8 @@
     }
   }
 
-  function fillCameraForm(cam) {
+  async function fillCameraForm(cam) {
+    await loadDepartmentsForSelect(cam.department_id || null);
     form.name.value = cam.name;
     form.ip.value = cam.ip;
     form.port.value = cam.port;
@@ -859,6 +997,9 @@
     form.password.value = "";
     form.path.value = cam.path;
     form.enabled.checked = !!cam.enabled;
+    if (cameraDepartmentSelect) {
+      cameraDepartmentSelect.value = cam.department_id ? String(cam.department_id) : "";
+    }
     setCameraFormMode(cam.id);
     if (cameraFormMsg) cameraFormMsg.textContent = "";
     openCameraModal();
@@ -874,8 +1015,125 @@
     if (cameraFormMsg) cameraFormMsg.textContent = "";
   }
 
+  function mkBtn(cls, label, attrs) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = cls;
+    b.textContent = label;
+    Object.keys(attrs || {}).forEach(function (k) {
+      b.setAttribute(k, attrs[k]);
+    });
+    return b;
+  }
+
+  function buildCameraRow(cam, streamById) {
+    const st = streamById[String(cam.id)];
+    let detCell = "—";
+    if (st && st.stream_running) {
+      detCell =
+        t("detOn") + " (" + st.faces_count + " " + t("detInFrame") + ")";
+    } else if (cam.enabled) {
+      detCell = t("detOff");
+    }
+    const tr = document.createElement("tr");
+    tr.className = "camera-row";
+    const tdId = document.createElement("td");
+    tdId.textContent = cam.id;
+    const tdName = document.createElement("td");
+    tdName.textContent = cam.name;
+    const tdIp = document.createElement("td");
+    tdIp.textContent = cameraIpDisplay(cam);
+    const tdEn = document.createElement("td");
+    tdEn.textContent = cam.enabled ? t("yes") : t("no");
+    const tdDet = document.createElement("td");
+    tdDet.textContent = detCell;
+    const tdAct = document.createElement("td");
+    tdAct.className = "actions";
+    tdAct.append(
+      mkBtn("watch-annot-btn btn btn-primary", t("watchDetection"), {
+        "data-id": String(cam.id),
+        "data-name": cam.name,
+      }),
+      mkBtn("watch-btn btn btn-secondary", t("watchRaw"), {
+        "data-id": String(cam.id),
+        "data-name": cam.name,
+      }),
+      mkBtn("edit-btn btn btn-secondary", t("editCamera"), {
+        "data-id": String(cam.id),
+      }),
+      mkBtn("delete-btn btn btn-danger", t("delete"), {
+        "data-id": String(cam.id),
+      })
+    );
+    tr.append(tdId, tdName, tdIp, tdEn, tdDet, tdAct);
+    return tr;
+  }
+
+  function isDeptExpanded(deptKey) {
+    return !collapsedDepts.has(deptKey);
+  }
+
+  function toggleDeptGroup(deptKey) {
+    if (collapsedDepts.has(deptKey)) collapsedDepts.delete(deptKey);
+    else collapsedDepts.add(deptKey);
+    const expanded = isDeptExpanded(deptKey);
+    document.querySelectorAll('.camera-row[data-dept-key="' + deptKey + '"]').forEach(function (row) {
+      row.classList.toggle("hidden", !expanded);
+    });
+    const toggle = document.querySelector('.dept-toggle[data-dept-key="' + deptKey + '"]');
+    if (toggle) {
+      toggle.textContent = expanded ? "▼" : "▶";
+      toggle.classList.toggle("expanded", expanded);
+    }
+  }
+
+  function appendDeptGroup(tableEl, deptKey, title, cameras, streamById, deptId) {
+    const expanded = isDeptExpanded(deptKey);
+    const header = document.createElement("tr");
+    header.className = "dept-header-row";
+    const td = document.createElement("td");
+    td.colSpan = 6;
+    const wrap = document.createElement("div");
+    wrap.className = "dept-header-cell";
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "dept-toggle" + (expanded ? " expanded" : "");
+    toggle.dataset.deptKey = deptKey;
+    toggle.textContent = expanded ? "▼" : "▶";
+    toggle.addEventListener("click", function () {
+      toggleDeptGroup(deptKey);
+    });
+    const titleEl = document.createElement("strong");
+    titleEl.className = "dept-title";
+    titleEl.textContent = title;
+    const countEl = document.createElement("span");
+    countEl.className = "dept-count help-text";
+    countEl.textContent = " (" + t("camerasCount", { n: cameras.length }) + ")";
+    wrap.append(toggle, titleEl, countEl);
+    if (deptId) {
+      const delBtn = mkBtn("dept-delete-btn btn btn-danger", t("delete"), {
+        "data-dept-id": String(deptId),
+        "data-dept-name": title,
+      });
+      wrap.append(delBtn);
+    }
+    td.appendChild(wrap);
+    header.appendChild(td);
+    tableEl.appendChild(header);
+    cameras.forEach(function (cam) {
+      const row = buildCameraRow(cam, streamById);
+      row.dataset.deptKey = deptKey;
+      if (!expanded) row.classList.add("hidden");
+      tableEl.appendChild(row);
+    });
+  }
+
   async function loadCameras() {
     const data = await request(API + "/cameras");
+    const deptData = await request(API + "/departments").catch(function () {
+      return { items: [] };
+    });
+    departmentsCache = deptData.items || [];
     const streams = await request(API + "/streams/status").catch(function () {
       return { items: [] };
     });
@@ -883,60 +1141,40 @@
     (streams.items || []).forEach(function (s) {
       streamById[String(s.camera_id)] = s;
     });
-    table.innerHTML = "";
-    data.items.forEach(function (cam) {
-      const st = streamById[String(cam.id)];
-      const enrolled = (st && st.enrolled_faces) || 0;
-      let detCell = "—";
-      if (st && st.stream_running) {
-        detCell =
-          t("detOn") + " (" + st.faces_count + " " + t("detInFrame") + ", DB: " + enrolled + ")";
-      } else if (cam.enabled) {
-        detCell = t("detOff") + " (DB: " + enrolled + ")";
+    const byDept = {};
+    const noDept = [];
+    (data.items || []).forEach(function (cam) {
+      if (cam.department_id) {
+        const key = String(cam.department_id);
+        if (!byDept[key]) byDept[key] = [];
+        byDept[key].push(cam);
+      } else {
+        noDept.push(cam);
       }
-      const tr = document.createElement("tr");
-      const tdId = document.createElement("td");
-      tdId.textContent = cam.id;
-      const tdName = document.createElement("td");
-      tdName.textContent = cam.name;
-      const tdRtsp = document.createElement("td");
-      tdRtsp.textContent = rtspUrl(cam);
-      const tdEn = document.createElement("td");
-      tdEn.textContent = cam.enabled ? t("yes") : t("no");
-      const tdDet = document.createElement("td");
-      tdDet.textContent = detCell;
-      const tdAct = document.createElement("td");
-      tdAct.className = "actions";
-
-      function mkBtn(cls, label, attrs) {
-        const b = document.createElement("button");
-        b.type = "button";
-        b.className = cls;
-        b.textContent = label;
-        Object.keys(attrs).forEach(function (k) {
-          b.setAttribute(k, attrs[k]);
-        });
-        return b;
-      }
-
-      const watchAnnot = mkBtn("watch-annot-btn btn btn-primary", t("watchDetection"), {
-        "data-id": String(cam.id),
-        "data-name": cam.name,
-      });
-      const watchRaw = mkBtn("watch-btn btn btn-secondary", t("watchRaw"), {
-        "data-id": String(cam.id),
-        "data-name": cam.name,
-      });
-      const editBtn = mkBtn("edit-btn btn btn-secondary", t("editCamera"), {
-        "data-id": String(cam.id),
-      });
-      const delBtn = mkBtn("delete-btn btn btn-danger", t("delete"), {
-        "data-id": String(cam.id),
-      });
-      tdAct.append(watchAnnot, watchRaw, editBtn, delBtn);
-      tr.append(tdId, tdName, tdRtsp, tdEn, tdDet, tdAct);
-      table.appendChild(tr);
     });
+    table.innerHTML = "";
+    departmentsCache.forEach(function (dept) {
+      appendDeptGroup(
+        table,
+        "d" + dept.id,
+        dept.name,
+        byDept[String(dept.id)] || [],
+        streamById,
+        dept.id
+      );
+    });
+    if (noDept.length) {
+      appendDeptGroup(table, "none", t("noDepartment"), noDept, streamById, null);
+    }
+    if (!departmentsCache.length && !noDept.length) {
+      const tr = document.createElement("tr");
+      const td = document.createElement("td");
+      td.colSpan = 6;
+      td.className = "help-text";
+      td.textContent = t("addCamera");
+      tr.appendChild(td);
+      table.appendChild(tr);
+    }
   }
 
   function openStreamModal(cameraName, useAnnotated) {
@@ -1027,6 +1265,7 @@
       });
       if (tab === "enroll" && window.DF_initEnroll) window.DF_initEnroll();
       if (tab === "recordings" && window.DF_initRecordings) window.DF_initRecordings();
+      if (tab === "stats" && window.DF_initStats) window.DF_initStats();
     });
   });
 
@@ -1044,7 +1283,36 @@
   if (addCameraBtn) {
     addCameraBtn.addEventListener("click", function () {
       resetCameraForm();
-      openCameraModal();
+      loadDepartmentsForSelect(null).then(openCameraModal);
+    });
+  }
+  if (addDepartmentBtn) {
+    addDepartmentBtn.addEventListener("click", openDepartmentModal);
+  }
+  if (departmentCancelBtn) departmentCancelBtn.addEventListener("click", closeDepartmentModal);
+  if (departmentModalClose) departmentModalClose.addEventListener("click", closeDepartmentModal);
+  if (departmentModalBackdrop) {
+    departmentModalBackdrop.addEventListener("click", closeDepartmentModal);
+  }
+  if (departmentForm) {
+    departmentForm.addEventListener("submit", async function (e) {
+      e.preventDefault();
+      const name = String(new FormData(departmentForm).get("name") || "").trim();
+      if (!name) return;
+      if (departmentFormMsg) departmentFormMsg.textContent = t("saving");
+      try {
+        await request(API + "/departments", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: name }),
+        });
+        setStatus(t("departmentSaved"));
+        closeDepartmentModal();
+        await loadCameras();
+      } catch (err) {
+        if (departmentFormMsg) departmentFormMsg.textContent = err.message;
+        setStatus(err.message, true);
+      }
     });
   }
   if (cameraCancelBtn) cameraCancelBtn.addEventListener("click", closeCameraModal);
@@ -1058,6 +1326,10 @@
     }
     if (cameraModal && !cameraModal.classList.contains("hidden")) {
       closeCameraModal();
+      return;
+    }
+    if (departmentModal && !departmentModal.classList.contains("hidden")) {
+      closeDepartmentModal();
     }
   });
 
@@ -1101,12 +1373,27 @@
   });
 
   table.addEventListener("click", async function (e) {
+    const deptDelBtn = e.target.closest(".dept-delete-btn");
+    if (deptDelBtn) {
+      const deptId = deptDelBtn.getAttribute("data-dept-id");
+      const deptName = deptDelBtn.getAttribute("data-dept-name") || "";
+      if (!confirm(t("confirmDeleteDepartment", { name: deptName }))) return;
+      try {
+        await request(API + "/departments/" + deptId, { method: "DELETE" });
+        setStatus(t("departmentDeleted"));
+        collapsedDepts.delete("d" + deptId);
+        await loadCameras();
+      } catch (err) {
+        setStatus(err.message, true);
+      }
+      return;
+    }
     const editBtn = e.target.closest(".edit-btn");
     if (editBtn) {
       const id = editBtn.getAttribute("data-id");
       try {
         const cam = await request(API + "/cameras/" + id);
-        fillCameraForm(cam);
+        await fillCameraForm(cam);
       } catch (err) {
         setStatus(err.message, true);
       }
@@ -1257,7 +1544,23 @@
     document.body.style.overflow = "";
   }
 
+  function recFmtTime(sec) {
+    if (!isFinite(sec) || sec < 0) return "00:00";
+    const total = Math.floor(sec);
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const s = total % 60;
+    const mm = String(m).padStart(2, "0");
+    const ss = String(s).padStart(2, "0");
+    return h > 0 ? h + ":" + mm + ":" + ss : mm + ":" + ss;
+  }
+
   window.DF_initRecordings = function () {
+    const tab = document.getElementById("tab-recordings");
+    if (!tab || tab.dataset.recReady === "1") return;
+    tab.dataset.recReady = "1";
+
+    const deptSelect = document.getElementById("rec-department-select");
     const camSelect = document.getElementById("rec-camera-select");
     const dateSelect = document.getElementById("rec-date-select");
     const list = document.getElementById("rec-file-list");
@@ -1266,32 +1569,187 @@
     const title = document.getElementById("rec-player-title");
     const prevBtn = document.getElementById("rec-prev-btn");
     const nextBtn = document.getElementById("rec-next-btn");
+    const progress = document.getElementById("rec-progress");
+    const timeDisplay = document.getElementById("rec-time-display");
+    const playBtn = document.getElementById("rec-play-btn");
 
     let currentFiles = [];
     let currentIndex = -1;
     let dayTimeline = null;
+    let allCameras = [];
+    let seeking = false;
 
-    if (!camSelect || !dateSelect || !list) return;
+    if (!deptSelect || !camSelect || !dateSelect || !list) return;
 
-    async function loadCameras() {
-      const data = await request(API + "/cameras");
+    function camerasForDepartment(deptValue) {
+      if (!deptValue) return [];
+      if (deptValue === "none") {
+        return allCameras.filter(function (cam) {
+          return !cam.department_id;
+        });
+      }
+      const deptId = Number(deptValue);
+      return allCameras.filter(function (cam) {
+        return cam.department_id === deptId;
+      });
+    }
+
+    function selectedCamName() {
+      return camSelect.options[camSelect.selectedIndex]?.dataset?.name || "";
+    }
+
+    function populateCameraSelect(preserveId) {
+      const deptValue = deptSelect.value;
       camSelect.innerHTML = "";
+      const cameras = camerasForDepartment(deptValue);
+
+      if (!deptValue) {
+        camSelect.disabled = true;
+        const opt0 = document.createElement("option");
+        opt0.value = "";
+        opt0.textContent = t("statsSelectDepartmentFirst");
+        camSelect.appendChild(opt0);
+        return;
+      }
+
+      camSelect.disabled = false;
       const opt0 = document.createElement("option");
       opt0.value = "";
       opt0.textContent = t("selectCamera");
       camSelect.appendChild(opt0);
-      (data.items || []).forEach(function (cam) {
+
+      if (!cameras.length) {
+        const optEmpty = document.createElement("option");
+        optEmpty.value = "";
+        optEmpty.textContent = t("statsNoCamerasInDept");
+        optEmpty.disabled = true;
+        camSelect.appendChild(optEmpty);
+        camSelect.disabled = true;
+        return;
+      }
+
+      cameras.forEach(function (cam) {
         const opt = document.createElement("option");
         opt.value = String(cam.id);
         opt.textContent = cam.id + " — " + cam.name;
         opt.dataset.name = cam.name;
         camSelect.appendChild(opt);
       });
+
+      if (preserveId && cameras.some(function (c) { return String(c.id) === String(preserveId); })) {
+        camSelect.value = String(preserveId);
+      }
+    }
+
+    async function loadDepartments() {
+      const [deptData, camData] = await Promise.all([
+        request(API + "/departments"),
+        request(API + "/cameras"),
+      ]);
+      allCameras = camData.items || [];
+      const prevDept = deptSelect.value;
+      const prevCam = camSelect.value;
+
+      deptSelect.innerHTML = "";
+      const opt0 = document.createElement("option");
+      opt0.value = "";
+      opt0.textContent = t("selectDepartment");
+      deptSelect.appendChild(opt0);
+
+      (deptData.items || []).forEach(function (dept) {
+        const opt = document.createElement("option");
+        opt.value = String(dept.id);
+        opt.textContent = dept.name + " (" + t("camerasCount", { n: dept.camera_count }) + ")";
+        deptSelect.appendChild(opt);
+      });
+
+      const noDeptCams = camerasForDepartment("none");
+      if (noDeptCams.length) {
+        const optNone = document.createElement("option");
+        optNone.value = "none";
+        optNone.textContent = t("noDepartment") + " (" + t("camerasCount", { n: noDeptCams.length }) + ")";
+        deptSelect.appendChild(optNone);
+      }
+
+      if (prevDept && Array.from(deptSelect.options).some(function (o) { return o.value === prevDept; })) {
+        deptSelect.value = prevDept;
+      }
+      populateCameraSelect(prevCam);
+    }
+
+    function updateRecTime(preview) {
+      if (!video || !timeDisplay) return;
+      const cur = preview != null ? preview : video.currentTime || 0;
+      const dur = video.duration || 0;
+      timeDisplay.textContent = recFmtTime(cur) + " / " + recFmtTime(dur);
+    }
+
+    function updatePlayBtn() {
+      if (!playBtn || !video) return;
+      const playing = !video.paused && !video.ended;
+      playBtn.textContent = playing ? "❚❚" : "▶";
+      playBtn.title = playing ? t("recPause") : t("recPlay");
+    }
+
+    function resetPlayerUi() {
+      if (progress) {
+        progress.value = "0";
+        progress.max = "0";
+        progress.disabled = true;
+      }
+      updateRecTime(0);
+      updatePlayBtn();
+    }
+
+    if (video) {
+      video.addEventListener("loadedmetadata", function () {
+        if (progress) {
+          const dur = video.duration || 0;
+          progress.max = String(dur);
+          progress.disabled = !(dur > 0);
+          progress.value = "0";
+        }
+        updateRecTime(0);
+      });
+      video.addEventListener("timeupdate", function () {
+        if (!seeking && progress) {
+          progress.value = String(video.currentTime || 0);
+        }
+        updateRecTime();
+      });
+      video.addEventListener("play", updatePlayBtn);
+      video.addEventListener("pause", updatePlayBtn);
+      video.addEventListener("ended", updatePlayBtn);
+      video.addEventListener("click", function () {
+        if (video.paused) video.play().catch(function () {});
+        else video.pause();
+      });
+    }
+
+    if (progress) {
+      progress.addEventListener("input", function () {
+        seeking = true;
+        updateRecTime(parseFloat(progress.value) || 0);
+      });
+      progress.addEventListener("change", function () {
+        if (!video) return;
+        const tsec = parseFloat(progress.value) || 0;
+        video.currentTime = tsec;
+        seeking = false;
+        updateRecTime();
+      });
+    }
+
+    if (playBtn && video) {
+      playBtn.addEventListener("click", function () {
+        if (video.paused) video.play().catch(function () {});
+        else video.pause();
+      });
     }
 
     async function loadDates() {
       const camId = camSelect.value;
-      const camName = camSelect.options[camSelect.selectedIndex]?.dataset?.name || "";
+      const camName = selectedCamName();
       if (!camId || !camName) {
         dateSelect.disabled = true;
         dateSelect.innerHTML = "<option value=\"\">" + t("selectDate") + "</option>";
@@ -1330,7 +1788,11 @@
         dayTimeline.date = date;
         dayTimelineEl.innerHTML = "";
         if (window.DF_renderTimeline) {
-          window.DF_renderTimeline(dayTimelineEl, dayTimeline, { mode: "day" });
+          window.DF_renderTimeline(
+            dayTimelineEl,
+            dayTimeline,
+            window.DF_DAY_VIEW_OPTS || { mode: "day", viewStartHour: 7, viewEndHour: 19 }
+          );
         }
       } catch (e) {
         dayTimeline = null;
@@ -1340,7 +1802,7 @@
 
     async function loadFiles() {
       const camId = camSelect.value;
-      const camName = camSelect.options[camSelect.selectedIndex]?.dataset?.name || "";
+      const camName = selectedCamName();
       const date = dateSelect.value;
       if (!camId || !camName || !date) {
         list.innerHTML = "<p class=\"help-text\">" + t("recSelectHint") + "</p>";
@@ -1476,7 +1938,7 @@
     function openAtIndex(idx) {
       if (!video) return;
       const camId = camSelect.value;
-      const camName = camSelect.options[camSelect.selectedIndex]?.dataset?.name || "";
+      const camName = selectedCamName();
       const date = dateSelect.value;
       if (!camId || !camName || !date) return;
       if (!Array.isArray(currentFiles) || !currentFiles.length) return;
@@ -1496,12 +1958,25 @@
         encodeURIComponent(f.filename) +
         "/file";
       if (title) title.textContent = camName + " · " + date + " · " + f.filename;
+      resetPlayerUi();
       video.playbackRate = 1;
       video.src = url;
       video.load();
       openModal();
+      video.play().catch(function () {});
       updateNavButtons();
     }
+
+    deptSelect.onchange = function () {
+      populateCameraSelect(null);
+      dateSelect.disabled = true;
+      dateSelect.innerHTML = "<option value=\"\">" + t("selectDate") + "</option>";
+      list.innerHTML = "<p class=\"help-text\">" + t("recSelectHint") + "</p>";
+      if (dayTimelineEl) {
+        dayTimelineEl.innerHTML = "<p class=\"help-text\">" + t("recTimelineDayHint") + "</p>";
+      }
+      dayTimeline = null;
+    };
 
     camSelect.onchange = function () {
       loadDates().then(loadFiles).catch(function (e) {
@@ -1516,8 +1991,17 @@
 
     const closeBtn = document.getElementById("rec-player-modal-close");
     const back = document.getElementById("rec-player-modal-backdrop");
-    if (closeBtn) closeBtn.onclick = closeModal;
-    if (back) back.onclick = closeModal;
+    function closeRecModal() {
+      if (video) {
+        video.pause();
+        video.removeAttribute("src");
+        video.load();
+      }
+      resetPlayerUi();
+      closeModal();
+    }
+    if (closeBtn) closeBtn.onclick = closeRecModal;
+    if (back) back.onclick = closeRecModal;
 
     document.querySelectorAll("[id^='rec-speed-btn']").forEach(function (b) {
       b.addEventListener("click", function () {
@@ -1539,7 +2023,7 @@
       });
     }
 
-    loadCameras().then(loadDates).catch(function (e) {
+    loadDepartments().catch(function (e) {
       list.innerHTML = "<p class=\"help-text\">" + e.message + "</p>";
     });
   };

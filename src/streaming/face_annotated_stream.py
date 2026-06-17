@@ -290,6 +290,8 @@ class FaceAnnotatedStreamer:
             camera_id=self.config.camera_id,
             roi_keys=self.config.roi_keys,
             switch_seconds=self.roi_switch_seconds,
+            presence_flags=presence,
+            reset_grace_seconds=self.roi_reset_grace_seconds,
         )
 
     def update_roi_polygons(

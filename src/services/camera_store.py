@@ -33,6 +33,7 @@ class CameraStore:
         self.pg = pg
         self._lock = Lock()
         self._ensure_roi_columns()
+        self._ensure_department_column()
         self._ensure_roi_timer_table()
         self._migrate_legacy_json_once()
         self._sync_id_sequence()
@@ -55,6 +56,19 @@ class CameraStore:
         except SQLAlchemyError as exc:
             self._rollback()
             log.warning(f"ROI columns migration: {exc}")
+
+    def _ensure_department_column(self) -> None:
+        try:
+            self.pg.session.exec(
+                text(
+                    "ALTER TABLE cameras ADD COLUMN IF NOT EXISTS "
+                    "department_id INTEGER REFERENCES departments(id) ON DELETE SET NULL"
+                )
+            )
+            self.pg.session.commit()
+        except SQLAlchemyError as exc:
+            self._rollback()
+            log.warning(f"department_id column migration: {exc}")
 
     def _ensure_roi_timer_table(self) -> None:
         try:
@@ -138,7 +152,24 @@ class CameraStore:
                 self._sync_id_sequence()
                 return
 
-    def _to_schema(self, row: CameraSqlSchema) -> CameraSchema:
+    def _department_names(self) -> dict[int, str]:
+        names: dict[int, str] = {}
+        try:
+            rows = self.pg.session.exec(
+                text("SELECT id, name FROM departments")
+            ).all()
+            for row in rows:
+                names[int(row[0])] = str(row[1])
+        except SQLAlchemyError:
+            self._rollback()
+        return names
+
+    def _to_schema(
+        self, row: CameraSqlSchema, dept_names: dict[int, str] | None = None
+    ) -> CameraSchema:
+        dept_id = getattr(row, "department_id", None)
+        if dept_names is None:
+            dept_names = self._department_names()
         return CameraSchema(
             id=row.id,
             name=row.name,
@@ -150,6 +181,8 @@ class CameraStore:
             path=row.path,
             enabled=row.enabled,
             roi_enabled=bool(getattr(row, "roi_enabled", False)),
+            department_id=dept_id,
+            department_name=dept_names.get(dept_id) if dept_id else None,
         )
 
     def _polygons_to_response(
@@ -213,7 +246,8 @@ class CameraStore:
             except SQLAlchemyError:
                 self._rollback()
                 raise
-        return [self._to_schema(r) for r in rows]
+        dept_names = self._department_names()
+        return [self._to_schema(r, dept_names) for r in rows]
 
     def create(self, payload: CameraCreateSchema) -> CameraSchema:
         with self._lock:
@@ -251,6 +285,7 @@ class CameraStore:
                 row = self.pg.session.get(CameraSqlSchema, camera_id)
                 if not row:
                     return None
+                old_name = row.name
                 for key, value in updates.items():
                     setattr(row, key, value)
                 self.pg.session.add(row)
@@ -259,6 +294,15 @@ class CameraStore:
             except SQLAlchemyError:
                 self._rollback()
                 raise
+        if "name" in updates and updates["name"] and updates["name"] != old_name:
+            try:
+                from src.services.recording_service import get_recording_service
+
+                svc = get_recording_service()
+                if svc:
+                    svc.rename_camera_folder(camera_id, old_name, updates["name"])
+            except Exception as exc:
+                log.warning(f"Recordings folder rename skipped: {exc}")
         return self._to_schema(row)
 
     def delete(self, camera_id: int) -> bool:

@@ -23,6 +23,9 @@ log = get_logger()
 TIMELINE_HEAD_MAX_SEC = 86400.0
 # Запас по умолчанию, если switch_sec не передан (см. get_timeline)
 TIMELINE_DEFAULT_SWITCH_SEC = 60.0
+# Окно отображения статистики: часы [start, end) в локальной TZ сервера
+VIEW_START_HOUR = 7
+VIEW_END_HOUR = 19
 
 
 @dataclass
@@ -32,8 +35,9 @@ class RoiTimerState:
     roi_index: int
     polygon_json: str
     mode: str = "standby"  # standby | work | idle
-    work_seconds: float = 0.0
+    work_seconds: float = 0.0  # накоплено за текущий день в окне смены 07:00–19:00
     idle_seconds: float = 0.0
+    shift_date: str = ""  # календарная дата (YYYY-MM-DD) для work_seconds/idle_seconds
     last_tick: float = 0.0
     presence_since: float | None = None
     absence_since: float | None = None
@@ -181,6 +185,142 @@ class RoiTimerStore:
         dt = datetime.fromtimestamp(ts, tz=tz)
         return dt.date().isoformat(), dt.hour
 
+    def _shift_bounds_for_date(self, day) -> tuple[float, float]:
+        """Границы рабочей смены [07:00, 19:00) для календарной даты."""
+        tz = self._local_tz()
+        start = datetime.combine(day, dt_time(VIEW_START_HOUR, 0), tzinfo=tz).timestamp()
+        end = datetime.combine(day, dt_time(VIEW_END_HOUR, 0), tzinfo=tz).timestamp()
+        return start, end
+
+    def _shift_status(self, ts: float) -> str:
+        """before | active | after — относительно смены 07:00–19:00 текущего дня."""
+        tz = self._local_tz()
+        day = datetime.fromtimestamp(ts, tz=tz).date()
+        shift_start, shift_end = self._shift_bounds_for_date(day)
+        if ts < shift_start:
+            return "before"
+        if ts >= shift_end:
+            return "after"
+        return "active"
+
+    @staticmethod
+    def _iter_shift_slices(t0: float, t1: float, shift_start: float, shift_end: float):
+        """Части [t0, t1), попадающие в [shift_start, shift_end)."""
+        if t1 <= t0:
+            return
+        seg_start = max(t0, shift_start)
+        seg_end = min(t1, shift_end)
+        if seg_end > seg_start:
+            yield seg_start, seg_end
+
+    def _iter_shift_slices_for_interval(self, t0: float, t1: float):
+        """Части интервала, попадающие в смену 07:00–19:00 (один или два дня)."""
+        if t1 <= t0:
+            return
+        tz = self._local_tz()
+        day = datetime.fromtimestamp(t0, tz=tz).date()
+        end_day = datetime.fromtimestamp(t1 - 1e-6, tz=tz).date()
+        while day <= end_day:
+            shift_start, shift_end = self._shift_bounds_for_date(day)
+            yield from self._iter_shift_slices(t0, t1, shift_start, shift_end)
+            day += timedelta(days=1)
+
+    def _get_shift_totals_from_db(
+        self, camera_id: int, roi_key: str, day_str: str
+    ) -> tuple[float, float]:
+        """Сумма work/idle за день в окне смены (из почасовых накоплений)."""
+        try:
+            row = self.pg.session.exec(
+                text(
+                    """
+                    SELECT COALESCE(SUM(work_seconds), 0), COALESCE(SUM(idle_seconds), 0)
+                    FROM roi_timer_hourly
+                    WHERE camera_id = :camera_id
+                      AND roi_key = :roi_key
+                      AND day_date = :day_date
+                      AND hour >= :view_start AND hour < :view_end
+                    """
+                ).bindparams(
+                    camera_id=camera_id,
+                    roi_key=roi_key,
+                    day_date=day_str,
+                    view_start=VIEW_START_HOUR,
+                    view_end=VIEW_END_HOUR,
+                )
+            ).first()
+        except SQLAlchemyError:
+            self._rollback()
+            return 0.0, 0.0
+        if row is None:
+            return 0.0, 0.0
+        return float(row[0] or 0), float(row[1] or 0)
+
+    def _accumulate_shift_segment(
+        self,
+        camera_id: int,
+        roi_key: str,
+        roi_index: int,
+        mode: str,
+        seg_start: float,
+        seg_end: float,
+    ) -> None:
+        """Накопить work/idle за отрезок внутри смены, разбивая по часам."""
+        if mode not in ("work", "idle") or seg_end <= seg_start:
+            return
+        tz = self._local_tz()
+        cur = seg_start
+        while cur < seg_end:
+            dt_loc = datetime.fromtimestamp(cur, tz=tz)
+            hour = dt_loc.hour
+            next_hour = datetime.combine(
+                dt_loc.date(),
+                dt_time(hour + 1 if hour < 23 else 0, 0),
+                tzinfo=tz,
+            )
+            if hour == 23:
+                next_hour = datetime.combine(
+                    dt_loc.date() + timedelta(days=1),
+                    dt_time(0, 0),
+                    tzinfo=tz,
+                )
+            next_ts = next_hour.timestamp()
+            chunk_end = min(seg_end, next_ts)
+            dt = chunk_end - cur
+            if dt > 0:
+                self._accumulate_period(
+                    camera_id, roi_key, roi_index, mode, dt, chunk_end
+                )
+            cur = chunk_end
+
+    def _sync_shift_day_state(
+        self,
+        state: RoiTimerState,
+        camera_id: int,
+        roi_key: str,
+        ts: float,
+        prev_ts: float,
+    ) -> None:
+        """Сброс/загрузка счётчиков при смене дня или входе в окно 07:00."""
+        day_str, _ = self._local_day_hour(ts)
+        status = self._shift_status(ts)
+        prev_status = self._shift_status(prev_ts) if prev_ts else status
+
+        if state.shift_date != day_str:
+            state.shift_date = day_str
+            state.work_seconds = 0.0
+            state.idle_seconds = 0.0
+            state.mode = "standby"
+            state.presence_since = None
+            state.absence_since = None
+            if status == "active":
+                w, i = self._get_shift_totals_from_db(camera_id, roi_key, day_str)
+                state.work_seconds = w
+                state.idle_seconds = i
+        elif status == "active" and prev_status == "before":
+            state.mode = "standby"
+            state.presence_since = None
+            state.absence_since = None
+
     def _accumulate_period(
         self,
         camera_id: int,
@@ -193,7 +333,10 @@ class RoiTimerStore:
         """Накопить секунды за интервал в сутки и час (локальный TZ)."""
         if dt <= 0:
             return
-        day_str, hour = self._local_day_hour(ts)
+        # Храним секунды в "час, к которому относится начало интервала".
+        # В противном случае при разбиении по границам (cur..next_hour)
+        # всё будет приписываться следующему часу.
+        day_str, hour = self._local_day_hour(ts - 1e-6)
         work_d = idle_d = standby_d = 0.0
         work_h = idle_h = 0.0
         if mode == "work":
@@ -322,14 +465,17 @@ class RoiTimerStore:
             return None
 
         now = time.time()
+        day_str, _ = self._local_day_hour(now)
+        work, idle = self._get_shift_totals_from_db(camera_id, roi_key, day_str)
         return RoiTimerState(
             camera_id=camera_id,
             roi_key=roi_key,
             roi_index=int(row[0] or roi_index),
             polygon_json=str(row[1] or polygon_json),
             mode=str(row[2] or "standby"),
-            work_seconds=float(row[3] or 0),
-            idle_seconds=float(row[4] or 0),
+            work_seconds=work,
+            idle_seconds=idle,
+            shift_date=day_str,
             # Не начисляем простой/работу за время, пока сервис был выключен
             last_tick=now,
             presence_since=None,
@@ -365,12 +511,14 @@ class RoiTimerStore:
             return restored, False
 
         now = time.time()
+        day_str, _ = self._local_day_hour(now)
         state = RoiTimerState(
             camera_id=camera_id,
             roi_key=roi_key,
             roi_index=roi_index,
             polygon_json=polygon_json,
             mode="standby",
+            shift_date=day_str,
             last_tick=now,
             updated_at=now,
         )
@@ -571,6 +719,13 @@ class RoiTimerStore:
                         if state is None:
                             continue
                         self._cache[cache_key] = state
+
+                    prev_ts = state.last_tick or ts
+                    self._sync_shift_day_state(
+                        state, camera_id, roi_key, ts, prev_ts
+                    )
+                    shift_status = self._shift_status(ts)
+
                     if present:
                         self._last_present_ts[cache_key] = ts
                         effective_present = True
@@ -581,48 +736,68 @@ class RoiTimerStore:
                             and reset_grace_seconds > 0
                             and (ts - last_seen) <= reset_grace_seconds
                         )
-                    dt = max(0.0, ts - (state.last_tick or ts))
-                    interval_mode = state.mode
-                    if interval_mode == "work":
-                        state.work_seconds += dt
-                    elif interval_mode == "idle":
-                        state.idle_seconds += dt
-                    if dt > 0:
-                        self._accumulate_period(
-                            camera_id,
-                            roi_key,
-                            state.roi_index,
-                            interval_mode,
-                            dt,
-                            ts,
-                        )
 
-                    prev_mode = state.mode
-                    if effective_present:
+                    interval_mode = state.mode
+                    if (
+                        shift_status == "active"
+                        and state.last_tick
+                        and ts > state.last_tick
+                    ):
+                        for seg_start, seg_end in self._iter_shift_slices_for_interval(
+                            state.last_tick, ts
+                        ):
+                            seg_dt = seg_end - seg_start
+                            if interval_mode == "work":
+                                state.work_seconds += seg_dt
+                            elif interval_mode == "idle":
+                                state.idle_seconds += seg_dt
+                            if seg_dt > 0 and interval_mode in ("work", "idle"):
+                                self._accumulate_shift_segment(
+                                    camera_id,
+                                    roi_key,
+                                    state.roi_index,
+                                    interval_mode,
+                                    seg_start,
+                                    seg_end,
+                                )
+
+                    # Таймеры перехода для оверлея — по фактическому присутствию
+                    if present:
                         state.absence_since = None
-                        if state.mode in ("standby", "idle"):
-                            if state.presence_since is None:
-                                state.presence_since = ts
-                            elif (ts - state.presence_since) >= switch_seconds:
-                                state.mode = "work"
-                                state.presence_since = None
+                        if state.mode in ("standby", "idle") and state.presence_since is None:
+                            state.presence_since = ts
                     else:
                         state.presence_since = None
-                        if state.mode in ("standby", "work"):
-                            if state.absence_since is None:
-                                state.absence_since = ts
-                            elif (ts - state.absence_since) >= switch_seconds:
-                                state.mode = "idle"
-                                state.absence_since = None
+                        if state.mode in ("standby", "work") and state.absence_since is None:
+                            state.absence_since = ts
 
-                    if state.mode != prev_mode:
-                        self._log_mode_event(
-                            camera_id,
-                            roi_key,
-                            state.roi_index,
-                            state.mode,
-                            ts,
-                        )
+                    prev_mode = state.mode
+                    if shift_status == "active":
+                        if effective_present:
+                            if state.mode in ("standby", "idle"):
+                                if state.presence_since is None:
+                                    state.presence_since = ts
+                                elif (ts - state.presence_since) >= switch_seconds:
+                                    state.mode = "work"
+                                    state.presence_since = None
+                                    state.absence_since = None
+                        else:
+                            if state.mode in ("standby", "work"):
+                                if state.absence_since is None:
+                                    state.absence_since = ts
+                                elif (ts - state.absence_since) >= switch_seconds:
+                                    state.mode = "idle"
+                                    state.presence_since = None
+                                    state.absence_since = None
+
+                        if state.mode != prev_mode:
+                            self._log_mode_event(
+                                camera_id,
+                                roi_key,
+                                state.roi_index,
+                                state.mode,
+                                ts,
+                            )
 
                     state.last_tick = ts
                     state.updated_at = ts
@@ -633,55 +808,113 @@ class RoiTimerStore:
                 self._rollback()
                 log.warning(f"ROI timers tick failed (camera={camera_id}): {exc}")
 
+    def _countdown_to_idle(
+        self,
+        cache_key: tuple[int, str],
+        state: RoiTimerState,
+        ts: float,
+        switch_seconds: float,
+        reset_grace_seconds: float,
+        raw_present: bool | None,
+    ) -> int | None:
+        """Секунды до простоя (с учётом grace после ухода человека)."""
+        if state.mode != "work" or raw_present is True:
+            return None
+        last_seen = self._last_present_ts.get(cache_key)
+        if last_seen is None and state.absence_since is not None:
+            last_seen = state.absence_since - reset_grace_seconds
+        if last_seen is None:
+            return None
+        deadline = last_seen + reset_grace_seconds + switch_seconds
+        return max(0, int(deadline - ts))
+
+    def _countdown_to_work(
+        self,
+        state: RoiTimerState,
+        ts: float,
+        switch_seconds: float,
+        raw_present: bool | None,
+    ) -> int | None:
+        """Секунды до работы."""
+        if state.mode not in ("standby", "idle"):
+            return None
+        if raw_present is False:
+            return None
+        if state.presence_since is None:
+            return None
+        return max(0, int(switch_seconds - (ts - state.presence_since)))
+
     def get_overlay_labels(
         self,
         camera_id: int,
         roi_keys: list[str],
         switch_seconds: float,
         now: float | None = None,
+        presence_flags: list[bool] | None = None,
+        reset_grace_seconds: float = 0.0,
     ) -> list[str]:
         ts = now or time.time()
+        shift_lbl = f"смена {VIEW_START_HOUR:02d}:00–{VIEW_END_HOUR:02d}:00"
         labels: list[str] = []
         with self._lock:
-            for roi_key in roi_keys:
+            for idx, roi_key in enumerate(roi_keys):
                 state = self._cache.get((camera_id, roi_key))
-                idx = int(state.roi_index) if state and state.roi_index else 0
+                cache_key = (camera_id, roi_key)
+                raw_present = (
+                    presence_flags[idx]
+                    if presence_flags is not None and idx < len(presence_flags)
+                    else None
+                )
+                roi_lbl = f"ROI {state.roi_index if state else (idx + 1)}"
+                shift_status = self._shift_status(ts)
+
                 if state is None:
-                    labels.append(f"ROI {idx or '?'}: ожидание")
+                    labels.append(f"{roi_lbl}: ожидание | {shift_lbl}")
                     continue
+
                 work_txt = self._fmt_hhmmss(state.work_seconds)
                 idle_txt = self._fmt_hhmmss(state.idle_seconds)
-                roi_lbl = f"ROI {state.roi_index}"
-                if state.mode == "work":
-                    if state.absence_since is not None:
-                        left = max(0, int(switch_seconds - (ts - state.absence_since)))
-                        labels.append(
-                            f"{roi_lbl} работа {work_txt} | простой {idle_txt} (простой через {left}с)"
-                        )
-                    else:
-                        labels.append(f"{roi_lbl} работа {work_txt} | простой {idle_txt}")
-                elif state.mode == "idle":
-                    if state.presence_since is not None:
-                        left = max(0, int(switch_seconds - (ts - state.presence_since)))
-                        labels.append(
-                            f"{roi_lbl} работа {work_txt} | простой {idle_txt} (работа через {left}с)"
-                        )
-                    else:
-                        labels.append(f"{roi_lbl} работа {work_txt} | простой {idle_txt}")
+
+                if shift_status == "before":
+                    labels.append(
+                        f"{roi_lbl} работа {work_txt} | {shift_lbl} (старт в {VIEW_START_HOUR:02d}:00)"
+                    )
+                    continue
+                if shift_status == "after":
+                    labels.append(
+                        f"{roi_lbl} работа {work_txt} | простой {idle_txt} | {shift_lbl} (завершена)"
+                    )
+                    continue
+
+                to_idle = self._countdown_to_idle(
+                    cache_key, state, ts, switch_seconds, reset_grace_seconds, raw_present
+                )
+                to_work = self._countdown_to_work(state, ts, switch_seconds, raw_present)
+
+                if to_idle is not None:
+                    labels.append(
+                        f"{roi_lbl} работа {work_txt} | простой {idle_txt} (простой через {to_idle}с)"
+                    )
+                elif to_work is not None:
+                    labels.append(
+                        f"{roi_lbl} работа {work_txt} | простой {idle_txt} (работа через {to_work}с)"
+                    )
                 else:
-                    if state.presence_since is not None:
-                        left = max(0, int(switch_seconds - (ts - state.presence_since)))
-                        labels.append(
-                            f"{roi_lbl} работа {work_txt} | простой {idle_txt} (работа через {left}с)"
-                        )
-                    elif state.absence_since is not None:
-                        left = max(0, int(switch_seconds - (ts - state.absence_since)))
-                        labels.append(
-                            f"{roi_lbl} работа {work_txt} | простой {idle_txt} (простой через {left}с)"
-                        )
-                    else:
-                        labels.append(f"{roi_lbl} работа {work_txt} | простой {idle_txt}")
+                    labels.append(f"{roi_lbl} работа {work_txt} | простой {idle_txt}")
         return labels
+
+    @staticmethod
+    def _sum_hourly_window(
+        hourly_rows: list[tuple[int, float, float]],
+        start_hour: int,
+        end_hour: int,
+    ) -> tuple[float, float]:
+        work = idle = 0.0
+        for hour, w, i in hourly_rows:
+            if start_hour <= hour < end_hour:
+                work += w
+                idle += i
+        return work, idle
 
     def get_timeline(
         self,
@@ -695,18 +928,22 @@ class RoiTimerStore:
         sw = float(switch_sec or TIMELINE_DEFAULT_SWITCH_SEC)
         max_extrapolate = max(sw * 2.0, sw + 30.0)
         day_start, day_end = self.day_range_unix(date_str)
-        rs = range_start if range_start is not None else day_start
-        re = range_end if range_end is not None else day_end
-        rs = max(rs, day_start)
-        re = min(re, day_end)
+        explicit_range = range_start is not None and range_end is not None
+        if explicit_range:
+            rs = max(float(range_start), day_start)
+            re = min(float(range_end), day_end)
+        else:
+            rs = day_start + VIEW_START_HOUR * 3600
+            re = day_start + VIEW_END_HOUR * 3600
+            rs = max(rs, day_start)
+            re = min(re, day_end)
         now = time.time()
-        if range_end is None and day_start <= now < day_end:
+        if not explicit_range and day_start <= now < day_end:
             re = min(re, now)
         if re <= rs:
             re = min(day_end, now) if day_start <= now < day_end else day_end
 
         span = max(1.0, re - rs)
-        explicit_range = range_start is not None and range_end is not None
         head_before = min(
             TIMELINE_HEAD_MAX_SEC,
             max(120.0, span + 60.0) if explicit_range else max(3600.0, span * 2),
@@ -764,25 +1001,6 @@ class RoiTimerStore:
                 self._rollback()
                 log.warning(f"ROI timeline query failed: {exc}")
 
-            daily_by_key: dict[str, tuple[float, float]] = {}
-            try:
-                daily_rows = self.pg.session.exec(
-                    text(
-                        """
-                        SELECT roi_key, work_seconds, idle_seconds
-                        FROM roi_timer_daily
-                        WHERE camera_id = :camera_id AND day_date = :day_date
-                        """
-                    ).bindparams(camera_id=camera_id, day_date=date_str)
-                ).all()
-                for row in daily_rows:
-                    daily_by_key[str(row[0])] = (
-                        float(row[1] or 0),
-                        float(row[2] or 0),
-                    )
-            except SQLAlchemyError:
-                self._rollback()
-
             hourly_by_key: dict[str, list[tuple[int, float, float]]] = {}
             try:
                 hourly_rows = self.pg.session.exec(
@@ -824,14 +1042,28 @@ class RoiTimerStore:
                             hourly, day_start, rs, re
                         )
                         source = "hourly"
-                daily = daily_by_key.get(roi_key, (0.0, 0.0))
+                if explicit_range:
+                    tz = self._local_tz()
+                    start_h = datetime.fromtimestamp(rs, tz=tz).hour
+                    end_h = datetime.fromtimestamp(max(rs, re - 1), tz=tz).hour + 1
+                    totals = self._sum_hourly_window(
+                        hourly_by_key.get(roi_key, []),
+                        start_h,
+                        end_h,
+                    )
+                else:
+                    totals = self._sum_hourly_window(
+                        hourly_by_key.get(roi_key, []),
+                        VIEW_START_HOUR,
+                        VIEW_END_HOUR,
+                    )
                 zones_out.append(
                     {
                         "roi_index": roi_index,
                         "roi_key": roi_key,
                         "segments": segments,
-                        "daily_work_seconds": daily[0],
-                        "daily_idle_seconds": daily[1],
+                        "daily_work_seconds": totals[0],
+                        "daily_idle_seconds": totals[1],
                         "timeline_source": source,
                     }
                 )
@@ -990,3 +1222,87 @@ class RoiTimerStore:
         return merged or [
             {"start": range_start, "end": range_end, "mode": "standby"}
         ]
+
+    def get_stat_dates(self, camera_id: int) -> list[str]:
+        """Даты с накопленной статистикой ROI для камеры."""
+        try:
+            rows = self.pg.session.exec(
+                text(
+                    """
+                    SELECT DISTINCT day_date
+                    FROM roi_timer_daily
+                    WHERE camera_id = :camera_id
+                    ORDER BY day_date
+                    """
+                ).bindparams(camera_id=camera_id)
+            ).all()
+            return [str(row[0]) for row in rows]
+        except SQLAlchemyError as exc:
+            self._rollback()
+            log.warning(f"ROI stat dates query failed: {exc}")
+            return []
+
+    def get_daily_stats_range(
+        self, camera_id: int, from_date: str, to_date: str
+    ) -> dict:
+        """Статистика work/idle по ROI за диапазон дат (окно VIEW_START–VIEW_END)."""
+        days_map: dict[str, dict] = {}
+        try:
+            rows = self.pg.session.exec(
+                text(
+                    """
+                    SELECT day_date, roi_key, MAX(roi_index) AS roi_index,
+                           SUM(work_seconds) AS work_seconds,
+                           SUM(idle_seconds) AS idle_seconds
+                    FROM roi_timer_hourly
+                    WHERE camera_id = :camera_id
+                      AND day_date BETWEEN :from_date AND :to_date
+                      AND hour >= :view_start AND hour < :view_end
+                    GROUP BY day_date, roi_key
+                    ORDER BY day_date, roi_index, roi_key
+                    """
+                ).bindparams(
+                    camera_id=camera_id,
+                    from_date=from_date,
+                    to_date=to_date,
+                    view_start=VIEW_START_HOUR,
+                    view_end=VIEW_END_HOUR,
+                )
+            ).all()
+            for row in rows:
+                day_str = str(row[0])
+                zone = {
+                    "roi_key": str(row[1]),
+                    "roi_index": int(row[2] or 0),
+                    "work_seconds": float(row[3] or 0),
+                    "idle_seconds": float(row[4] or 0),
+                    "standby_seconds": 0.0,
+                }
+                entry = days_map.setdefault(
+                    day_str,
+                    {
+                        "date": day_str,
+                        "work_seconds": 0.0,
+                        "idle_seconds": 0.0,
+                        "standby_seconds": 0.0,
+                        "zones": [],
+                    },
+                )
+                entry["work_seconds"] += zone["work_seconds"]
+                entry["idle_seconds"] += zone["idle_seconds"]
+                entry["standby_seconds"] += zone["standby_seconds"]
+                entry["zones"].append(zone)
+        except SQLAlchemyError as exc:
+            self._rollback()
+            log.warning(f"ROI daily stats range query failed: {exc}")
+
+        days = [days_map[k] for k in sorted(days_map.keys())]
+        return {
+            "camera_id": camera_id,
+            "from": from_date,
+            "to": to_date,
+            "timezone": str(self._local_tz()),
+            "view_start_hour": VIEW_START_HOUR,
+            "view_end_hour": VIEW_END_HOUR,
+            "days": days,
+        }

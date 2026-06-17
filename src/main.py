@@ -38,6 +38,7 @@ def main_api(cfg: Configs) -> None:
     from src.api.stream_api import StreamApi
     from src.db.pg_db import PgSyncDb
     from src.schema.camera_sql_schema import CameraSqlSchema  # noqa: F401 — register table
+    from src.schema.department_sql_schema import DepartmentSqlSchema  # noqa: F401
     from src.schema.fr_schema import FacesFrSqlSchema  # noqa: F401
     from src.services.camera_store import CameraStore
     from src.services.settings_store import SettingsStore
@@ -55,6 +56,10 @@ def main_api(cfg: Configs) -> None:
     pg.setup()
     pg.create_all()
 
+    from src.services.department_store import DepartmentStore
+    from src.api.department_api import DepartmentApi
+
+    department_store = DepartmentStore(pg)
     camera_store = CameraStore(pg)
     settings_store = SettingsStore(cfg.DETECTION_SETTINGS_PATH, cfg)
     stream_manager = init_stream_manager(cfg, camera_store=camera_store)
@@ -88,6 +93,9 @@ def main_api(cfg: Configs) -> None:
     app.include_router(fr_api.router, prefix="/api/v1/engine", tags=["face-recognition"])
 
     app.include_router(camera_api.router, prefix="/api/v1", tags=["cameras"])
+
+    department_api = DepartmentApi(department_store)
+    app.include_router(department_api.router, prefix="/api/v1", tags=["departments"])
 
     stream_api = StreamApi(camera_store)
     app.include_router(stream_api.router, prefix="/api/v1", tags=["streams"])

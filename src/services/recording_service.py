@@ -74,17 +74,87 @@ class RecordingService:
         except ValueError:
             return True
 
+    @staticmethod
+    def _camera_dir_name(camera_id: int, camera_name: str) -> str:
+        return f"cam{camera_id}_{camera_name}"
+
+    def _recordings_base(self) -> Path:
+        return Path(self.settings.recordings_path)
+
+    def _camera_dirs(self, camera_id: int, camera_name: str) -> list[Path]:
+        """Все папки cam{id}_* (после переименования камеры их может быть несколько)."""
+        base = self._recordings_base()
+        if not base.is_dir():
+            return []
+        prefix = f"cam{camera_id}_"
+        dirs = [p for p in base.iterdir() if p.is_dir() and p.name.startswith(prefix)]
+        exact = base / self._camera_dir_name(camera_id, camera_name)
+        if exact.is_dir() and exact not in dirs:
+            dirs.append(exact)
+        if not dirs:
+            return [exact]
+        return sorted(dirs, key=lambda p: p.name)
+
+    def _primary_camera_dir(self, camera_id: int, camera_name: str) -> Path:
+        base = self._recordings_base()
+        exact = base / self._camera_dir_name(camera_id, camera_name)
+        dirs = self._camera_dirs(camera_id, camera_name)
+        if exact.is_dir():
+            return exact
+        if len(dirs) == 1:
+            return dirs[0]
+        if dirs:
+            return max(dirs, key=lambda p: sum(1 for _ in p.rglob("*.mp4")))
+        return exact
+
+    def rename_camera_folder(self, camera_id: int, old_name: str, new_name: str) -> None:
+        """Переименовать/объединить папку записей при смене имени камеры."""
+        if not old_name or not new_name or old_name == new_name:
+            return
+        base = self._recordings_base()
+        old_dir = base / self._camera_dir_name(camera_id, old_name)
+        new_dir = base / self._camera_dir_name(camera_id, new_name)
+        if not old_dir.is_dir():
+            return
+        try:
+            if new_dir.is_dir() and new_dir != old_dir:
+                for day_dir in old_dir.iterdir():
+                    if not day_dir.is_dir():
+                        continue
+                    target_day = new_dir / day_dir.name
+                    target_day.mkdir(parents=True, exist_ok=True)
+                    for f in day_dir.glob("*.mp4"):
+                        dest = target_day / f.name
+                        if not dest.exists():
+                            f.rename(dest)
+                    try:
+                        day_dir.rmdir()
+                    except OSError:
+                        pass
+                try:
+                    old_dir.rmdir()
+                except OSError:
+                    pass
+                log.info(f"[cam {camera_id}] Merged recordings {old_dir.name} -> {new_dir.name}")
+            elif not new_dir.exists():
+                old_dir.rename(new_dir)
+                log.info(f"[cam {camera_id}] Renamed recordings folder to {new_dir.name}")
+        except OSError as exc:
+            log.warning(f"[cam {camera_id}] Recordings folder rename failed: {exc}")
+
     def get_output_path(self, camera_id: int, camera_name: str) -> Path:
         """Get the output path for today's recordings."""
         today = datetime.now().strftime("%Y-%m-%d")
-        base = Path(self.settings.recordings_path)
-        cam_dir = base / f"cam{camera_id}_{camera_name}" / today
+        cam_dir = self._primary_camera_dir(camera_id, camera_name) / today
         cam_dir.mkdir(parents=True, exist_ok=True)
         return cam_dir
 
     def get_file_path(self, camera_id: int, camera_name: str, date: str, filename: str) -> Path:
-        base = Path(self.settings.recordings_path)
-        return base / f"cam{camera_id}_{camera_name}" / date / filename
+        for cam_dir in self._camera_dirs(camera_id, camera_name):
+            path = cam_dir / date / filename
+            if path.is_file():
+                return path
+        return self._primary_camera_dir(camera_id, camera_name) / date / filename
 
     def start_recording(
         self,
@@ -140,6 +210,8 @@ class RecordingService:
             "yuv420p",
             "-f",
             "segment",
+            "-segment_format_options",
+            "movflags=+faststart",
             "-segment_time",
             str(segment_sec),
             "-reset_timestamps",
@@ -177,11 +249,16 @@ class RecordingService:
 
     def get_recordings_list(self, camera_id: int, camera_name: str, date: str) -> list[dict]:
         """Get list of recordings for a specific date."""
-        base = Path(self.settings.recordings_path)
-        cam_dir = base / f"cam{camera_id}_{camera_name}" / date
-        if not cam_dir.exists():
+        by_name: dict[str, Path] = {}
+        for cam_dir in self._camera_dirs(camera_id, camera_name):
+            day_dir = cam_dir / date
+            if not day_dir.is_dir():
+                continue
+            for f in day_dir.glob("*.mp4"):
+                by_name.setdefault(f.name, f)
+        if not by_name:
             return []
-        files = sorted(cam_dir.glob("*.mp4"), key=lambda p: p.name)
+        files = sorted(by_name.values(), key=lambda p: p.name)
         chunk_sec = int(self.settings.chunk_duration_min) * 60
         recordings = []
         for i, f in enumerate(files):
@@ -250,11 +327,13 @@ class RecordingService:
 
     def get_available_dates(self, camera_id: int, camera_name: str) -> list[str]:
         """Get list of dates with recordings."""
-        base = Path(self.settings.recordings_path)
-        cam_dir = base / f"cam{camera_id}_{camera_name}"
-        if not cam_dir.exists():
-            return []
-        dates = [d.name for d in cam_dir.iterdir() if d.is_dir()]
+        dates: set[str] = set()
+        for cam_dir in self._camera_dirs(camera_id, camera_name):
+            if not cam_dir.is_dir():
+                continue
+            for d in cam_dir.iterdir():
+                if d.is_dir():
+                    dates.add(d.name)
         return sorted(dates, reverse=True)
 
     def delete_recording(self, camera_id: int, camera_name: str, date: str, filename: str) -> bool:

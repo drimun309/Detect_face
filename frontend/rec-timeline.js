@@ -1,12 +1,31 @@
 /** Диаграммы работы/простоя ROI: день = 24 ч, ролик = интервал записи. */
 (function () {
   const MODE_COLORS = {
-    work: "#4caf50",
+    work: "#5ba8e0",
     idle: "#ff9800",
     standby: "#3d3d3d",
   };
 
   const HOUR_TICKS = [0, 3, 6, 9, 12, 15, 18, 21, 24];
+
+  function viewHoursFromOpts(opts) {
+    if (!opts || opts.viewStartHour == null || opts.viewEndHour == null) return null;
+    const startH = Number(opts.viewStartHour);
+    const endH = Number(opts.viewEndHour);
+    if (!isFinite(startH) || !isFinite(endH) || endH <= startH) return null;
+    return { startH: startH, endH: endH };
+  }
+
+  function sumSegmentsSeconds(segments, rangeStart, rangeEnd) {
+    let work = 0;
+    let idle = 0;
+    mergeSegments(segments, rangeStart, rangeEnd).forEach(function (seg) {
+      const dt = Math.max(0, seg.end - seg.start);
+      if (seg.mode === "work") work += dt;
+      else if (seg.mode === "idle") idle += dt;
+    });
+    return { work: work, idle: idle };
+  }
 
   function t(key, vars) {
     return window.DF_I18N ? window.DF_I18N.t(key, vars) : key;
@@ -111,11 +130,22 @@
     wrap.appendChild(legend);
   }
 
-  function appendHourAxis(trackWrap, rangeStart, rangeEnd, mode) {
+  function appendHourAxis(trackWrap, rangeStart, rangeEnd, mode, opts) {
     const axis = document.createElement("div");
     axis.className = "rec-timeline-hour-axis";
+    const view = viewHoursFromOpts(opts);
 
-    if (mode === "day") {
+    if (mode === "day" && view) {
+      const spanH = view.endH - view.startH;
+      const step = spanH > 8 ? 3 : spanH > 4 ? 2 : 1;
+      for (let h = view.startH; h <= view.endH; h += step) {
+        const tick = document.createElement("span");
+        tick.className = "rec-timeline-hour-tick";
+        tick.style.left = ((h - view.startH) / spanH) * 100 + "%";
+        tick.textContent = pad2(h) + ":00";
+        axis.appendChild(tick);
+      }
+    } else if (mode === "day") {
       HOUR_TICKS.forEach(function (h) {
         const tick = document.createElement("span");
         tick.className = "rec-timeline-hour-tick";
@@ -206,8 +236,17 @@
     let rangeStart;
     let rangeEnd;
     let dataEnd = null;
+    const view = viewHoursFromOpts(opts);
     if (mode === "day") {
-      if (tl.range_start) {
+      const b = dayBounds(dateStr);
+      if (view) {
+        rangeStart = b.dayStart + view.startH * 3600;
+        rangeEnd = b.dayStart + view.endH * 3600;
+        dataEnd = rangeEnd;
+        if (isTodayLocal(dateStr)) {
+          dataEnd = Math.min(rangeEnd, Math.max(rangeStart, Date.now() / 1000));
+        }
+      } else if (tl.range_start) {
         rangeStart = tl.range_start;
         rangeEnd =
           tl.day_end && tl.day_end > tl.range_start
@@ -218,7 +257,6 @@
             ? tl.range_end
             : rangeEnd;
       } else {
-        const b = dayBounds(dateStr);
         rangeStart = b.dayStart;
         rangeEnd = b.dayEnd;
         dataEnd = rangeEnd;
@@ -242,7 +280,15 @@
     header.className = "rec-timeline-header";
     if (mode === "day") {
       header.textContent = t("recTimelineDayScale", { date: dateStr });
-      if (shift.enabled) {
+      if (view) {
+        header.textContent +=
+          " · " +
+          pad2(view.startH) +
+          ":00–" +
+          pad2(view.endH) +
+          ":00";
+      }
+      if (shift.enabled && !view) {
         header.textContent +=
           " · " + t("recTimelineShift") + " " + shift.start_time + "–" + shift.end_time;
       }
@@ -300,18 +346,19 @@
         const lbl = document.createElement("span");
         lbl.className = "rec-timeline-zone-label";
         lbl.textContent = "ROI " + z.roi_index;
-        if (
-          mode === "day" &&
-          ((z.daily_work_seconds || 0) > 0 || (z.daily_idle_seconds || 0) > 0)
-        ) {
-          const sub = document.createElement("span");
-          sub.className = "rec-timeline-zone-sub";
-          sub.textContent = t("recTimelineDailyTotals", {
-            work: fmtDuration(z.daily_work_seconds || 0),
-            idle: fmtDuration(z.daily_idle_seconds || 0),
-          });
-          lbl.appendChild(document.createElement("br"));
-          lbl.appendChild(sub);
+        if (mode === "day") {
+          const workSec = z.daily_work_seconds || 0;
+          const idleSec = z.daily_idle_seconds || 0;
+          if (workSec > 0 || idleSec > 0) {
+            const sub = document.createElement("span");
+            sub.className = "rec-timeline-zone-sub";
+            sub.textContent = t("recTimelineDailyTotals", {
+              work: fmtDuration(workSec),
+              idle: fmtDuration(idleSec),
+            });
+            lbl.appendChild(document.createElement("br"));
+            lbl.appendChild(sub);
+          }
         }
 
         const col = document.createElement("div");
@@ -325,7 +372,7 @@
           mode === "day" ? dataEnd : null
         );
         col.appendChild(trackWrap);
-        appendHourAxis(col, rangeStart, rangeEnd, mode);
+        appendHourAxis(col, rangeStart, rangeEnd, mode, opts);
 
         row.appendChild(lbl);
         row.appendChild(col);
@@ -374,6 +421,13 @@
     parent.appendChild(details);
     return details;
   }
+
+  /** Окно отображения дневных графиков: 07:00–19:00 */
+  window.DF_DAY_VIEW_OPTS = {
+    mode: "day",
+    viewStartHour: 7,
+    viewEndHour: 19,
+  };
 
   window.DF_renderTimeline = renderTimeline;
   window.DF_renderTimelineCollapsible = createCollapsible;

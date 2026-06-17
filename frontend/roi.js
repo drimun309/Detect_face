@@ -113,7 +113,7 @@
     completedPolygons.forEach(function (poly, polyIdx) {
       const activeIdx =
         dragState && dragState.polyIndex === polyIdx ? dragState.pointIndex : null;
-      drawPoly(poly.points, "#4caf50", "rgba(76, 175, 80, 0.15)", activeIdx);
+      drawPoly(poly.points, "#5ba8e0", "rgba(91, 168, 224, 0.18)", activeIdx);
       if (poly.points.length >= 3) {
         const cx =
           poly.points.reduce(function (s, p) {
