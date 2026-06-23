@@ -327,6 +327,46 @@ th {
   color: var(--accent-light);
 }
 
+.roi-names-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 8px 0 12px;
+  padding: 10px 12px;
+  border: 1px solid #333;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.roi-names-panel.hidden {
+  display: none;
+}
+
+.roi-name-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.roi-name-row label {
+  min-width: 72px;
+  font-size: 13px;
+  color: #bbb;
+}
+
+.roi-name-row input {
+  flex: 1;
+  min-width: 0;
+}
+
+.roi-zone-delete {
+  flex-shrink: 0;
+  min-width: 36px;
+  padding: 4px 10px;
+  font-size: 18px;
+  line-height: 1;
+}
+
 .player-wrap {
   position: relative;
   width: 100%;

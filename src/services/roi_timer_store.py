@@ -16,8 +16,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from src.db.pg_db import PgSyncDb
 from src.utils.logger import get_logger
-
-log = get_logger()
+from src.utils.roi_helpers import RoiPolygonData, default_roi_name, roi_display_name
 
 # Запас до начала интервала: последняя смена режима из БД
 TIMELINE_HEAD_MAX_SEC = 86400.0
@@ -27,6 +26,8 @@ TIMELINE_DEFAULT_SWITCH_SEC = 60.0
 VIEW_START_HOUR = 7
 VIEW_END_HOUR = 19
 
+log = get_logger()
+
 
 @dataclass
 class RoiTimerState:
@@ -34,6 +35,7 @@ class RoiTimerState:
     roi_key: str
     roi_index: int
     polygon_json: str
+    roi_name: str = ""
     mode: str = "standby"  # standby | work | idle
     work_seconds: float = 0.0  # накоплено за текущий день в окне смены 07:00–19:00
     idle_seconds: float = 0.0
@@ -80,6 +82,12 @@ class RoiTimerStore:
                         PRIMARY KEY (camera_id, roi_key)
                     )
                     """
+                )
+            )
+            self.pg.session.exec(
+                text(
+                    "ALTER TABLE roi_timers ADD COLUMN IF NOT EXISTS "
+                    "roi_name VARCHAR(128) NOT NULL DEFAULT ''"
                 )
             )
             self.pg.session.commit()
@@ -452,7 +460,8 @@ class RoiTimerStore:
                 text(
                     """
                     SELECT roi_index, polygon_json, mode, work_seconds, idle_seconds,
-                           last_tick, presence_since, absence_since, updated_at
+                           last_tick, presence_since, absence_since, updated_at,
+                           COALESCE(roi_name, '') AS roi_name
                     FROM roi_timers
                     WHERE camera_id = :camera_id AND roi_key = :roi_key
                     """
@@ -472,6 +481,7 @@ class RoiTimerStore:
             roi_key=roi_key,
             roi_index=int(row[0] or roi_index),
             polygon_json=str(row[1] or polygon_json),
+            roi_name=str(row[9] or ""),
             mode=str(row[2] or "standby"),
             work_seconds=work,
             idle_seconds=idle,
@@ -530,17 +540,18 @@ class RoiTimerStore:
             text(
                 """
                 INSERT INTO roi_timers (
-                    camera_id, roi_key, roi_index, polygon_json, mode,
+                    camera_id, roi_key, roi_index, roi_name, polygon_json, mode,
                     work_seconds, idle_seconds, last_tick,
                     presence_since, absence_since, updated_at
                 )
                 VALUES (
-                    :camera_id, :roi_key, :roi_index, :polygon_json, :mode,
+                    :camera_id, :roi_key, :roi_index, :roi_name, :polygon_json, :mode,
                     :work_seconds, :idle_seconds, :last_tick,
                     :presence_since, :absence_since, :updated_at
                 )
                 ON CONFLICT (camera_id, roi_key) DO UPDATE SET
                     roi_index = EXCLUDED.roi_index,
+                    roi_name = EXCLUDED.roi_name,
                     polygon_json = EXCLUDED.polygon_json,
                     mode = EXCLUDED.mode,
                     work_seconds = EXCLUDED.work_seconds,
@@ -554,6 +565,7 @@ class RoiTimerStore:
                 camera_id=st.camera_id,
                 roi_key=st.roi_key,
                 roi_index=st.roi_index,
+                roi_name=st.roi_name or default_roi_name(st.roi_index),
                 polygon_json=st.polygon_json,
                 mode=st.mode,
                 work_seconds=st.work_seconds,
@@ -568,7 +580,7 @@ class RoiTimerStore:
     def sync_camera_rois(
         self,
         camera_id: int,
-        polygons: list[list[tuple[float, float]]],
+        polygons: list[RoiPolygonData],
     ) -> list[str]:
         """Create/update rows for active ROIs and delete removed ROIs data.
 
@@ -632,22 +644,24 @@ class RoiTimerStore:
                                 "AND roi_key = :roi_key"
                             ).bindparams(camera_id=camera_id, roi_key=roi_key)
                         )
-                # cleanup cache for removed ROIs
                 for cache_key in list(self._cache.keys()):
                     cid, roi_key = cache_key
                     if cid == camera_id and roi_key not in keys_set:
                         del self._cache[cache_key]
                         self._last_present_ts.pop(cache_key, None)
 
-                for idx, poly in enumerate(polygons, start=1):
+                for idx, poly_data in enumerate(polygons, start=1):
                     roi_key = keys[idx - 1]
-                    poly_json = self._polygon_to_json(poly)
+                    poly_json = self._polygon_to_json(poly_data.points)
+                    roi_name = (poly_data.name or "").strip() or default_roi_name(idx)
                     state, is_new = self._get_or_load_state(
                         camera_id, roi_key, idx, poly_json
                     )
                     state.roi_index = idx
                     state.polygon_json = poly_json
+                    state.roi_name = roi_name
                     state.updated_at = now
+                    self._cache[(camera_id, roi_key)] = state
                     self.pg.session.exec(
                         text(
                             """
@@ -671,6 +685,26 @@ class RoiTimerStore:
                 self._rollback()
                 log.warning(f"ROI timers sync failed (camera={camera_id}): {exc}")
         return keys
+
+    def _roi_names_for_camera(self, camera_id: int) -> dict[str, str]:
+        names: dict[str, str] = {}
+        try:
+            rows = self.pg.session.exec(
+                text(
+                    """
+                    SELECT roi_key, roi_index, COALESCE(roi_name, '') AS roi_name
+                    FROM roi_timers
+                    WHERE camera_id = :camera_id
+                    """
+                ).bindparams(camera_id=camera_id)
+            ).all()
+            for row in rows:
+                roi_key = str(row[0])
+                roi_index = int(row[1] or 0)
+                names[roi_key] = roi_display_name(str(row[2] or ""), roi_index)
+        except SQLAlchemyError:
+            self._rollback()
+        return names
 
     def delete_camera(self, camera_id: int) -> None:
         with self._lock:
@@ -865,7 +899,10 @@ class RoiTimerStore:
                     if presence_flags is not None and idx < len(presence_flags)
                     else None
                 )
-                roi_lbl = f"ROI {state.roi_index if state else (idx + 1)}"
+                roi_lbl = roi_display_name(
+                    state.roi_name if state else "",
+                    state.roi_index if state else (idx + 1),
+                )
                 shift_status = self._shift_status(ts)
 
                 if state is None:
@@ -950,13 +987,14 @@ class RoiTimerStore:
         )
 
         index_by_key: dict[str, int] = {}
+        name_by_key: dict[str, str] = {}
         zones_out: list[dict] = []
         with self._lock:
             try:
                 index_rows = self.pg.session.exec(
                     text(
                         """
-                        SELECT roi_key, roi_index
+                        SELECT roi_key, roi_index, COALESCE(roi_name, '') AS roi_name
                         FROM roi_timers
                         WHERE camera_id = :camera_id
                         ORDER BY roi_index
@@ -964,7 +1002,10 @@ class RoiTimerStore:
                     ).bindparams(camera_id=camera_id)
                 ).all()
                 for row in index_rows:
-                    index_by_key[str(row[0])] = int(row[1] or 0)
+                    roi_key = str(row[0])
+                    roi_index = int(row[1] or 0)
+                    index_by_key[roi_key] = roi_index
+                    name_by_key[roi_key] = roi_display_name(str(row[2] or ""), roi_index)
             except SQLAlchemyError:
                 self._rollback()
 
@@ -1061,6 +1102,9 @@ class RoiTimerStore:
                     {
                         "roi_index": roi_index,
                         "roi_key": roi_key,
+                        "roi_name": name_by_key.get(
+                            roi_key, roi_display_name("", roi_index)
+                        ),
                         "segments": segments,
                         "daily_work_seconds": totals[0],
                         "daily_idle_seconds": totals[1],
@@ -1247,6 +1291,7 @@ class RoiTimerStore:
     ) -> dict:
         """Статистика work/idle по ROI за диапазон дат (окно VIEW_START–VIEW_END)."""
         days_map: dict[str, dict] = {}
+        name_by_key = self._roi_names_for_camera(camera_id)
         try:
             rows = self.pg.session.exec(
                 text(
@@ -1274,6 +1319,10 @@ class RoiTimerStore:
                 zone = {
                     "roi_key": str(row[1]),
                     "roi_index": int(row[2] or 0),
+                    "roi_name": name_by_key.get(
+                        str(row[1]),
+                        roi_display_name("", int(row[2] or 0)),
+                    ),
                     "work_seconds": float(row[3] or 0),
                     "idle_seconds": float(row[4] or 0),
                     "standby_seconds": 0.0,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from typing import Optional
 
 from src.utils.logger import get_logger
@@ -10,36 +11,70 @@ from src.utils.logger import get_logger
 log = get_logger()
 
 
-def parse_rois_from_json(rois_json: Optional[str]) -> list[list[tuple[float, float]]]:
+@dataclass
+class RoiPolygonData:
+    points: list[tuple[float, float]]
+    name: str = ""
+
+
+def default_roi_name(index: int) -> str:
+    return f"Зона {index}"
+
+
+def roi_display_name(name: str | None, index: int) -> str:
+    trimmed = (name or "").strip()
+    return trimmed if trimmed else default_roi_name(index)
+
+
+def parse_rois_from_json(rois_json: Optional[str]) -> list[RoiPolygonData]:
     if not rois_json:
         return []
     try:
         data = json.loads(rois_json) if isinstance(rois_json, str) else rois_json
         if not isinstance(data, list):
             return []
-        polygons: list[list[tuple[float, float]]] = []
-        for poly_data in data:
-            if not isinstance(poly_data, list) or len(poly_data) < 3:
-                continue
+        polygons: list[RoiPolygonData] = []
+        for idx, poly_data in enumerate(data, start=1):
+            name = ""
+            raw_points = poly_data
+            if isinstance(poly_data, dict):
+                name = str(poly_data.get("name") or "").strip()
+                raw_points = poly_data.get("points", [])
             points: list[tuple[float, float]] = []
-            for point in poly_data:
-                if isinstance(point, (list, tuple)) and len(point) >= 2:
-                    x, y = float(point[0]), float(point[1])
-                    if 0.0 <= x <= 1.0 and 0.0 <= y <= 1.0:
-                        points.append((x, y))
+            if isinstance(raw_points, list):
+                for point in raw_points:
+                    if isinstance(point, (list, tuple)) and len(point) >= 2:
+                        x, y = float(point[0]), float(point[1])
+                        if 0.0 <= x <= 1.0 and 0.0 <= y <= 1.0:
+                            points.append((x, y))
             if len(points) >= 3:
-                polygons.append(points)
+                polygons.append(
+                    RoiPolygonData(
+                        points=points,
+                        name=name or default_roi_name(idx),
+                    )
+                )
         return polygons
     except (json.JSONDecodeError, ValueError, TypeError) as exc:
         log.warning(f"ROI JSON parse error: {exc}")
         return []
 
 
-def serialize_rois_to_json(polygons: list[list[tuple[float, float]]]) -> str:
+def serialize_rois_to_json(polygons: list[RoiPolygonData]) -> str:
     if not polygons:
         return "[]"
-    data = [[[float(x), float(y)] for x, y in poly] for poly in polygons]
+    data = [
+        {
+            "name": (poly.name or default_roi_name(idx)).strip(),
+            "points": [[float(x), float(y)] for x, y in poly.points],
+        }
+        for idx, poly in enumerate(polygons, start=1)
+    ]
     return json.dumps(data, ensure_ascii=False)
+
+
+def polygons_points(polygons: list[RoiPolygonData]) -> list[list[tuple[float, float]]]:
+    return [poly.points for poly in polygons]
 
 
 def point_in_polygon(point: tuple[float, float], polygon: list[tuple[float, float]]) -> bool:

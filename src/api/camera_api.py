@@ -12,6 +12,7 @@ from src.schema.roi_schema import RoiResponse, RoiUpdate
 from src.services.camera_store import CameraStore
 from src.services.go2rtc_sync import sync_go2rtc_config
 from src.streaming.stream_manager import get_stream_manager
+from src.utils.roi_helpers import RoiPolygonData, default_roi_name
 
 
 class CameraApi:
@@ -43,7 +44,13 @@ class CameraApi:
             return
         try:
             manager = get_stream_manager()
-            polygons = [[(p.x, p.y) for p in poly.points] for poly in roi.polygons]
+            polygons = [
+                RoiPolygonData(
+                    name=(poly.name or "").strip() or default_roi_name(idx),
+                    points=[(p.x, p.y) for p in poly.points],
+                )
+                for idx, poly in enumerate(roi.polygons, start=1)
+            ]
             manager.update_roi_polygons(camera_id, roi.enabled, polygons)
         except RuntimeError:
             pass

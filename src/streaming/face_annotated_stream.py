@@ -249,9 +249,17 @@ class FaceAnnotatedStreamer:
             return
 
         if len(self.config.roi_keys) != len(self.config.roi_polygons):
+            from src.utils.roi_helpers import RoiPolygonData, default_roi_name
+
             self.config.roi_keys = self.roi_timer_store.sync_camera_rois(
                 self.config.camera_id,
-                self.config.roi_polygons,
+                [
+                    RoiPolygonData(
+                        points=poly,
+                        name=default_roi_name(idx),
+                    )
+                    for idx, poly in enumerate(self.config.roi_polygons, start=1)
+                ],
             )
         if not self.config.roi_keys:
             self._roi_labels = []

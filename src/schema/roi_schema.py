@@ -9,6 +9,7 @@ class RoiPoint(BaseModel):
 
 
 class RoiPolygon(BaseModel):
+    name: str = Field("", max_length=64)
     points: list[RoiPoint] = Field(..., min_length=3)
 
 

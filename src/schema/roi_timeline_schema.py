@@ -12,6 +12,7 @@ class TimelineSegment(BaseModel):
 class TimelineZone(BaseModel):
     roi_index: int
     roi_key: str
+    roi_name: str = ""
     segments: list[TimelineSegment] = Field(default_factory=list)
     daily_work_seconds: float = Field(
         0, description="Итого работа за календарный день (roi_timer_daily)"

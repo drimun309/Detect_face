@@ -16,7 +16,13 @@ from src.schema.camera_schema import CameraCreateSchema, CameraSchema, CameraUpd
 from src.schema.camera_sql_schema import CameraSqlSchema
 from src.schema.roi_schema import RoiPoint, RoiPolygon, RoiResponse, RoiUpdate
 from src.utils.logger import get_logger
-from src.utils.roi_helpers import parse_rois_from_json, serialize_rois_to_json
+from src.utils.roi_helpers import (
+    RoiPolygonData,
+    default_roi_name,
+    parse_rois_from_json,
+    polygons_points,
+    serialize_rois_to_json,
+)
 
 log = get_logger()
 
@@ -186,10 +192,14 @@ class CameraStore:
         )
 
     def _polygons_to_response(
-        self, polygons: list[list[tuple[float, float]]]
+        self, polygons: list[RoiPolygonData]
     ) -> list[RoiPolygon]:
         return [
-            RoiPolygon(points=[RoiPoint(x=x, y=y) for x, y in poly]) for poly in polygons
+            RoiPolygon(
+                name=poly.name or default_roi_name(idx),
+                points=[RoiPoint(x=x, y=y) for x, y in poly.points],
+            )
+            for idx, poly in enumerate(polygons, start=1)
         ]
 
     def get_roi(self, camera_id: int) -> Optional[RoiResponse]:
@@ -203,10 +213,16 @@ class CameraStore:
         )
 
     def update_roi(self, camera_id: int, payload: RoiUpdate) -> Optional[RoiResponse]:
-        polygons_list: list[list[tuple[float, float]]] = []
+        polygons_list: list[RoiPolygonData] = []
         if payload.enabled and payload.polygons:
-            for poly in payload.polygons:
-                polygons_list.append([(p.x, p.y) for p in poly.points])
+            for idx, poly in enumerate(payload.polygons, start=1):
+                name = (poly.name or "").strip() or default_roi_name(idx)
+                polygons_list.append(
+                    RoiPolygonData(
+                        name=name,
+                        points=[(p.x, p.y) for p in poly.points],
+                    )
+                )
         with self._lock:
             try:
                 row = self.pg.session.get(CameraSqlSchema, camera_id)
@@ -227,7 +243,7 @@ class CameraStore:
             camera_id, RoiUpdate(enabled=False, polygons=[])
         )
 
-    def get_roi_polygons(self, camera_id: int) -> tuple[bool, list[list[tuple[float, float]]]]:
+    def get_roi_polygons(self, camera_id: int) -> tuple[bool, list[RoiPolygonData]]:
         row = self.pg.session.get(CameraSqlSchema, camera_id)
         if not row:
             return False, []
@@ -236,6 +252,10 @@ class CameraStore:
         if not enabled:
             return False, []
         return True, polygons
+
+    def get_roi_points(self, camera_id: int) -> tuple[bool, list[list[tuple[float, float]]]]:
+        enabled, polygons = self.get_roi_polygons(camera_id)
+        return enabled, polygons_points(polygons)
 
     def list(self) -> list[CameraSchema]:
         with self._lock:

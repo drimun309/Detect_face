@@ -14,6 +14,7 @@ from src.schema.settings_schema import DetectionSettingsSchema
 from src.services.camera_store import CameraStore
 from src.streaming.face_annotated_stream import FaceAnnotatedStreamer, FaceStreamerConfig
 from src.utils.logger import get_logger
+from src.utils.roi_helpers import RoiPolygonData, polygons_points
 from src.utils.rtsp import build_go2rtc_rtsp_url, build_rtsp_url
 
 log = get_logger()
@@ -109,11 +110,12 @@ class FaceStreamManager:
         return self.face_store.reload()
 
     def _streamer_config(self, camera: CameraSchema) -> FaceStreamerConfig:
-        roi_enabled, roi_polygons = False, []
+        roi_enabled, roi_defs = False, []
         if self.camera_store:
-            roi_enabled, roi_polygons = self.camera_store.get_roi_polygons(camera.id)
-        active_polygons = roi_polygons if roi_enabled else []
+            roi_enabled, roi_defs = self.camera_store.get_roi_polygons(camera.id)
+        active_polygons = roi_defs if roi_enabled else []
         roi_keys = self.roi_timer_store.sync_camera_rois(camera.id, active_polygons)
+        roi_points = polygons_points(active_polygons)
         direct_rtsp = build_rtsp_url(camera)
         go2rtc_rtsp = (
             build_go2rtc_rtsp_url(camera, self.cfg.GO2RTC_RTSP_URL)
@@ -136,7 +138,7 @@ class FaceStreamManager:
             min_det_score=self.cfg.FR_MIN_DET_SCORE,
             show_unknown_distance=self.cfg.STREAM_SHOW_UNKNOWN_DISTANCE,
             roi_enabled=roi_enabled,
-            roi_polygons=roi_polygons,
+            roi_polygons=roi_points,
             roi_keys=roi_keys,
         )
 
@@ -144,13 +146,15 @@ class FaceStreamManager:
         self,
         camera_id: int,
         enabled: bool,
-        polygons: list[list[tuple[float, float]]],
+        polygons: list[RoiPolygonData],
     ) -> None:
         active_polygons = polygons if enabled else []
         roi_keys = self.roi_timer_store.sync_camera_rois(camera_id, active_polygons)
         streamer = self.streamers.get(camera_id)
         if streamer:
-            streamer.update_roi_polygons(enabled, polygons, roi_keys)
+            streamer.update_roi_polygons(
+                enabled, polygons_points(active_polygons), roi_keys
+            )
 
     def delete_roi_timers(self, camera_id: int) -> None:
         self.roi_timer_store.delete_camera(camera_id)

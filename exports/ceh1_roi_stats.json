@@ -1,0 +1,613 @@
+{
+  "source": "data1/postgres",
+  "exported_at": "2026-06-19T10:52:33+04:00",
+  "camera": {
+    "id": 2,
+    "name": "цех1"
+  },
+  "rois": [
+    {
+      "roi_index": 1,
+      "roi_key": "c31eaa16969fb7ea8ac97306"
+    },
+    {
+      "roi_index": 2,
+      "roi_key": "4da9302b9741c932991ec0a7"
+    },
+    {
+      "roi_index": 3,
+      "roi_key": "72f3925375603b3d630818a2"
+    }
+  ],
+  "view_window": {
+    "start_hour": 7,
+    "end_hour": 19,
+    "description": "shift_7_19 = stats for hours 07:00-19:00"
+  },
+  "days": [
+    {
+      "date": "2026-06-03",
+      "full_day": {
+        "zones": [
+          {
+            "roi_index": 1,
+            "work_seconds": 5734.928064107895,
+            "idle_seconds": 27185.746475696564,
+            "standby_seconds": 0.0,
+            "work_time": "1:35:35",
+            "idle_time": "7:33:06",
+            "standby_time": "0:00:00"
+          },
+          {
+            "roi_index": 2,
+            "work_seconds": 1124.8589153289795,
+            "idle_seconds": 31795.80806016922,
+            "standby_seconds": 0.0,
+            "work_time": "0:18:45",
+            "idle_time": "8:49:56",
+            "standby_time": "0:00:00"
+          },
+          {
+            "roi_index": 3,
+            "work_seconds": 1747.72718667984,
+            "idle_seconds": 31172.936678647995,
+            "standby_seconds": 0.0,
+            "work_time": "0:29:08",
+            "idle_time": "8:39:33",
+            "standby_time": "0:00:00"
+          }
+        ],
+        "totals": {
+          "work_seconds": 8607.514166116714,
+          "idle_seconds": 90154.49121451378,
+          "work_time": "2:23:28",
+          "idle_time": "25:02:34",
+          "standby_seconds": 0.0,
+          "standby_time": "0:00:00"
+        }
+      },
+      "shift_7_19": {
+        "zones": [
+          {
+            "roi_index": 1,
+            "work_seconds": 5734.928064107895,
+            "idle_seconds": 9185.827624082565,
+            "work_time": "1:35:35",
+            "idle_time": "2:33:06"
+          },
+          {
+            "roi_index": 2,
+            "work_seconds": 1124.8589153289795,
+            "idle_seconds": 13795.889208555222,
+            "work_time": "0:18:45",
+            "idle_time": "3:49:56"
+          },
+          {
+            "roi_index": 3,
+            "work_seconds": 1747.72718667984,
+            "idle_seconds": 13173.017827033997,
+            "work_time": "0:29:08",
+            "idle_time": "3:39:33"
+          }
+        ],
+        "totals": {
+          "work_seconds": 8607.514166116714,
+          "idle_seconds": 36154.73465967178,
+          "work_time": "2:23:28",
+          "idle_time": "10:02:35"
+        }
+      }
+    },
+    {
+      "date": "2026-06-04",
+      "full_day": {
+        "zones": [
+          {
+            "roi_index": 1,
+            "work_seconds": 15385.864542007446,
+            "idle_seconds": 71014.22709560394,
+            "standby_seconds": 0.0,
+            "work_time": "4:16:26",
+            "idle_time": "19:43:34",
+            "standby_time": "0:00:00"
+          },
+          {
+            "roi_index": 2,
+            "work_seconds": 2992.5787858963013,
+            "idle_seconds": 83407.51285171509,
+            "standby_seconds": 0.0,
+            "work_time": "0:49:53",
+            "idle_time": "23:10:08",
+            "standby_time": "0:00:00"
+          },
+          {
+            "roi_index": 3,
+            "work_seconds": 6566.818615436554,
+            "idle_seconds": 79833.27302217484,
+            "standby_seconds": 0.0,
+            "work_time": "1:49:27",
+            "idle_time": "22:10:33",
+            "standby_time": "0:00:00"
+          }
+        ],
+        "totals": {
+          "work_seconds": 24945.2619433403,
+          "idle_seconds": 234255.01296949387,
+          "work_time": "6:55:45",
+          "idle_time": "65:04:15",
+          "standby_seconds": 0.0,
+          "standby_time": "0:00:00"
+        }
+      },
+      "shift_7_19": {
+        "zones": [
+          {
+            "roi_index": 1,
+            "work_seconds": 15385.864542007446,
+            "idle_seconds": 27814.00238609314,
+            "work_time": "4:16:26",
+            "idle_time": "7:43:34"
+          },
+          {
+            "roi_index": 2,
+            "work_seconds": 2992.5787858963013,
+            "idle_seconds": 40207.288142204285,
+            "work_time": "0:49:53",
+            "idle_time": "11:10:07"
+          },
+          {
+            "roi_index": 3,
+            "work_seconds": 6566.818615436554,
+            "idle_seconds": 36633.04831266403,
+            "work_time": "1:49:27",
+            "idle_time": "10:10:33"
+          }
+        ],
+        "totals": {
+          "work_seconds": 24945.2619433403,
+          "idle_seconds": 104654.33884096146,
+          "work_time": "6:55:45",
+          "idle_time": "29:04:14"
+        }
+      }
+    },
+    {
+      "date": "2026-06-05",
+      "full_day": {
+        "zones": [
+          {
+            "roi_index": 1,
+            "work_seconds": 17946.746423721313,
+            "idle_seconds": 68453.10961222649,
+            "standby_seconds": 0.0,
+            "work_time": "4:59:07",
+            "idle_time": "19:00:53",
+            "standby_time": "0:00:00"
+          },
+          {
+            "roi_index": 2,
+            "work_seconds": 4498.395270109177,
+            "idle_seconds": 81901.46076583862,
+            "standby_seconds": 0.0,
+            "work_time": "1:14:58",
+            "idle_time": "22:45:01",
+            "standby_time": "0:00:00"
+          },
+          {
+            "roi_index": 3,
+            "work_seconds": 10093.850470542908,
+            "idle_seconds": 76306.00556540489,
+            "standby_seconds": 0.0,
+            "work_time": "2:48:14",
+            "idle_time": "21:11:46",
+            "standby_time": "0:00:00"
+          }
+        ],
+        "totals": {
+          "work_seconds": 32538.992164373398,
+          "idle_seconds": 226660.57594347,
+          "work_time": "9:02:19",
+          "idle_time": "62:57:41",
+          "standby_seconds": 0.0,
+          "standby_time": "0:00:00"
+        }
+      },
+      "shift_7_19": {
+        "zones": [
+          {
+            "roi_index": 1,
+            "work_seconds": 17946.746423721313,
+            "idle_seconds": 25253.284980535507,
+            "work_time": "4:59:07",
+            "idle_time": "7:00:53"
+          },
+          {
+            "roi_index": 2,
+            "work_seconds": 4478.95836353302,
+            "idle_seconds": 38721.0730407238,
+            "work_time": "1:14:39",
+            "idle_time": "10:45:21"
+          },
+          {
+            "roi_index": 3,
+            "work_seconds": 4016.7158455848694,
+            "idle_seconds": 39183.31555867195,
+            "work_time": "1:06:57",
+            "idle_time": "10:53:03"
+          }
+        ],
+        "totals": {
+          "work_seconds": 26442.420632839203,
+          "idle_seconds": 103157.67357993126,
+          "work_time": "7:20:42",
+          "idle_time": "28:39:18"
+        }
+      }
+    },
+    {
+      "date": "2026-06-06",
+      "full_day": {
+        "zones": [
+          {
+            "roi_index": 1,
+            "work_seconds": 0.0,
+            "idle_seconds": 86400.07633137703,
+            "standby_seconds": 0.0,
+            "work_time": "0:00:00",
+            "idle_time": "24:00:00",
+            "standby_time": "0:00:00"
+          },
+          {
+            "roi_index": 2,
+            "work_seconds": 0.0,
+            "idle_seconds": 86400.07633137703,
+            "standby_seconds": 0.0,
+            "work_time": "0:00:00",
+            "idle_time": "24:00:00",
+            "standby_time": "0:00:00"
+          },
+          {
+            "roi_index": 3,
+            "work_seconds": 22577.483904361725,
+            "idle_seconds": 63822.592427015305,
+            "standby_seconds": 0.0,
+            "work_time": "6:16:17",
+            "idle_time": "17:43:43",
+            "standby_time": "0:00:00"
+          }
+        ],
+        "totals": {
+          "work_seconds": 22577.483904361725,
+          "idle_seconds": 236622.74508976936,
+          "work_time": "6:16:17",
+          "idle_time": "65:43:43",
+          "standby_seconds": 0.0,
+          "standby_time": "0:00:00"
+        }
+      },
+      "shift_7_19": {
+        "zones": [
+          {
+            "roi_index": 1,
+            "work_seconds": 0.0,
+            "idle_seconds": 43199.845958948135,
+            "work_time": "0:00:00",
+            "idle_time": "12:00:00"
+          },
+          {
+            "roi_index": 2,
+            "work_seconds": 0.0,
+            "idle_seconds": 43199.845958948135,
+            "work_time": "0:00:00",
+            "idle_time": "12:00:00"
+          },
+          {
+            "roi_index": 3,
+            "work_seconds": 172.75364875793457,
+            "idle_seconds": 43027.0923101902,
+            "work_time": "0:02:53",
+            "idle_time": "11:57:07"
+          }
+        ],
+        "totals": {
+          "work_seconds": 172.75364875793457,
+          "idle_seconds": 129426.78422808647,
+          "work_time": "0:02:53",
+          "idle_time": "35:57:07"
+        }
+      }
+    },
+    {
+      "date": "2026-06-07",
+      "full_day": {
+        "zones": [
+          {
+            "roi_index": 1,
+            "work_seconds": 0.0,
+            "idle_seconds": 86399.85605740547,
+            "standby_seconds": 0.0,
+            "work_time": "0:00:00",
+            "idle_time": "24:00:00",
+            "standby_time": "0:00:00"
+          },
+          {
+            "roi_index": 2,
+            "work_seconds": 0.0,
+            "idle_seconds": 86399.85605740547,
+            "standby_seconds": 0.0,
+            "work_time": "0:00:00",
+            "idle_time": "24:00:00",
+            "standby_time": "0:00:00"
+          },
+          {
+            "roi_index": 3,
+            "work_seconds": 15731.495598554611,
+            "idle_seconds": 70668.36045885086,
+            "standby_seconds": 0.0,
+            "work_time": "4:22:11",
+            "idle_time": "19:37:48",
+            "standby_time": "0:00:00"
+          }
+        ],
+        "totals": {
+          "work_seconds": 15731.495598554611,
+          "idle_seconds": 243468.0725736618,
+          "work_time": "4:22:11",
+          "idle_time": "67:37:48",
+          "standby_seconds": 0.0,
+          "standby_time": "0:00:00"
+        }
+      },
+      "shift_7_19": {
+        "zones": [
+          {
+            "roi_index": 1,
+            "work_seconds": 0.0,
+            "idle_seconds": 43200.02584981918,
+            "work_time": "0:00:00",
+            "idle_time": "12:00:00"
+          },
+          {
+            "roi_index": 2,
+            "work_seconds": 0.0,
+            "idle_seconds": 43200.02584981918,
+            "work_time": "0:00:00",
+            "idle_time": "12:00:00"
+          },
+          {
+            "roi_index": 3,
+            "work_seconds": 0.0,
+            "idle_seconds": 43200.02584981918,
+            "work_time": "0:00:00",
+            "idle_time": "12:00:00"
+          }
+        ],
+        "totals": {
+          "work_seconds": 0.0,
+          "idle_seconds": 129600.07754945755,
+          "work_time": "0:00:00",
+          "idle_time": "36:00:00"
+        }
+      }
+    },
+    {
+      "date": "2026-06-08",
+      "full_day": {
+        "zones": [
+          {
+            "roi_index": 1,
+            "work_seconds": 20231.330729961395,
+            "idle_seconds": 66168.97169566154,
+            "standby_seconds": 0.0,
+            "work_time": "5:37:11",
+            "idle_time": "18:22:49",
+            "standby_time": "0:00:00"
+          },
+          {
+            "roi_index": 2,
+            "work_seconds": 4319.816386938095,
+            "idle_seconds": 82080.48603868484,
+            "standby_seconds": 0.0,
+            "work_time": "1:12:00",
+            "idle_time": "22:48:00",
+            "standby_time": "0:00:00"
+          },
+          {
+            "roi_index": 3,
+            "work_seconds": 2359.9379892349243,
+            "idle_seconds": 84040.36443638802,
+            "standby_seconds": 0.0,
+            "work_time": "0:39:20",
+            "idle_time": "23:20:40",
+            "standby_time": "0:00:00"
+          }
+        ],
+        "totals": {
+          "work_seconds": 26911.085106134415,
+          "idle_seconds": 232289.8221707344,
+          "work_time": "7:28:31",
+          "idle_time": "64:31:30",
+          "standby_seconds": 0.0,
+          "standby_time": "0:00:00"
+        }
+      },
+      "shift_7_19": {
+        "zones": [
+          {
+            "roi_index": 1,
+            "work_seconds": 20195.528638124466,
+            "idle_seconds": 23004.604702472687,
+            "work_time": "5:36:36",
+            "idle_time": "6:23:25"
+          },
+          {
+            "roi_index": 2,
+            "work_seconds": 4319.816386938095,
+            "idle_seconds": 38880.31695365906,
+            "work_time": "1:12:00",
+            "idle_time": "10:48:00"
+          },
+          {
+            "roi_index": 3,
+            "work_seconds": 1985.8741912841797,
+            "idle_seconds": 41214.25914931297,
+            "work_time": "0:33:06",
+            "idle_time": "11:26:54"
+          }
+        ],
+        "totals": {
+          "work_seconds": 26501.21921634674,
+          "idle_seconds": 103099.18080544472,
+          "work_time": "7:21:41",
+          "idle_time": "28:38:19"
+        }
+      }
+    },
+    {
+      "date": "2026-06-09",
+      "full_day": {
+        "zones": [
+          {
+            "roi_index": 1,
+            "work_seconds": 16083.009251832962,
+            "idle_seconds": 70316.86883759499,
+            "standby_seconds": 0.0,
+            "work_time": "4:28:03",
+            "idle_time": "19:31:57",
+            "standby_time": "0:00:00"
+          },
+          {
+            "roi_index": 2,
+            "work_seconds": 4400.117263793945,
+            "idle_seconds": 81999.760825634,
+            "standby_seconds": 0.0,
+            "work_time": "1:13:20",
+            "idle_time": "22:46:40",
+            "standby_time": "0:00:00"
+          },
+          {
+            "roi_index": 3,
+            "work_seconds": 5757.046896457672,
+            "idle_seconds": 80642.83119297028,
+            "standby_seconds": 0.0,
+            "work_time": "1:35:57",
+            "idle_time": "22:24:03",
+            "standby_time": "0:00:00"
+          }
+        ],
+        "totals": {
+          "work_seconds": 26240.17341208458,
+          "idle_seconds": 232959.46085619926,
+          "work_time": "7:17:20",
+          "idle_time": "64:42:39",
+          "standby_seconds": 0.0,
+          "standby_time": "0:00:00"
+        }
+      },
+      "shift_7_19": {
+        "zones": [
+          {
+            "roi_index": 1,
+            "work_seconds": 15949.996616125107,
+            "idle_seconds": 27250.06757593155,
+            "work_time": "4:25:50",
+            "idle_time": "7:34:10"
+          },
+          {
+            "roi_index": 2,
+            "work_seconds": 3964.816674232483,
+            "idle_seconds": 39235.24751782417,
+            "work_time": "1:06:05",
+            "idle_time": "10:53:55"
+          },
+          {
+            "roi_index": 3,
+            "work_seconds": 5740.189423561096,
+            "idle_seconds": 37459.87476849556,
+            "work_time": "1:35:40",
+            "idle_time": "10:24:20"
+          }
+        ],
+        "totals": {
+          "work_seconds": 25655.002713918686,
+          "idle_seconds": 103945.18986225128,
+          "work_time": "7:07:35",
+          "idle_time": "28:52:25"
+        }
+      }
+    },
+    {
+      "date": "2026-06-10",
+      "full_day": {
+        "zones": [
+          {
+            "roi_index": 1,
+            "work_seconds": 5398.305607318878,
+            "idle_seconds": 37805.982224702835,
+            "standby_seconds": 0.0,
+            "work_time": "1:29:58",
+            "idle_time": "10:30:06",
+            "standby_time": "0:00:00"
+          },
+          {
+            "roi_index": 2,
+            "work_seconds": 747.1640565395355,
+            "idle_seconds": 42457.12377548218,
+            "standby_seconds": 0.0,
+            "work_time": "0:12:27",
+            "idle_time": "11:47:37",
+            "standby_time": "0:00:00"
+          },
+          {
+            "roi_index": 3,
+            "work_seconds": 6194.777513027191,
+            "idle_seconds": 37009.51031899452,
+            "standby_seconds": 0.0,
+            "work_time": "1:43:15",
+            "idle_time": "10:16:50",
+            "standby_time": "0:00:00"
+          }
+        ],
+        "totals": {
+          "work_seconds": 12340.247176885605,
+          "idle_seconds": 117272.61631917953,
+          "work_time": "3:25:40",
+          "idle_time": "32:34:33",
+          "standby_seconds": 0.0,
+          "standby_time": "0:00:00"
+        }
+      },
+      "shift_7_19": {
+        "zones": [
+          {
+            "roi_index": 1,
+            "work_seconds": 5398.305607318878,
+            "idle_seconds": 12605.896579265594,
+            "work_time": "1:29:58",
+            "idle_time": "3:30:06"
+          },
+          {
+            "roi_index": 2,
+            "work_seconds": 747.1640565395355,
+            "idle_seconds": 17257.038130044937,
+            "work_time": "0:12:27",
+            "idle_time": "4:47:37"
+          },
+          {
+            "roi_index": 3,
+            "work_seconds": 6194.777513027191,
+            "idle_seconds": 11809.424673557281,
+            "work_time": "1:43:15",
+            "idle_time": "3:16:49"
+          }
+        ],
+        "totals": {
+          "work_seconds": 12340.247176885605,
+          "idle_seconds": 41672.35938286781,
+          "work_time": "3:25:40",
+          "idle_time": "11:34:32"
+        }
+      }
+    }
+  ]
+}

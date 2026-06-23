@@ -1,17 +1,41 @@
 /** ROI overlay на видеоплеере (как analiz). */
 (function () {
   const API = "/api/v1";
-  const t = (key) => (window.DF_I18N ? window.DF_I18N.t(key) : key);
+  const t = (key, vars) => (window.DF_I18N ? window.DF_I18N.t(key, vars) : key);
 
   let cameraId = null;
   let isSelecting = false;
   let completedPolygons = [];
   let currentPoints = [];
   let dragState = null;
+  let saveTimer = null;
+  let roiEnabled = false;
 
   const video = () => document.getElementById("stream-video");
   const canvas = () => document.getElementById("roi-canvas");
   const statusEl = () => document.getElementById("roi-status");
+  const namesPanel = () => document.getElementById("roi-names-panel");
+
+  function defaultZoneName(index) {
+    return t("roiZoneDefault", { n: index });
+  }
+
+  function zoneLabel(poly, polyIdx) {
+    const name = poly && poly.name ? String(poly.name).trim() : "";
+    return name || defaultZoneName(polyIdx + 1);
+  }
+
+  function normalizePolygon(poly, index) {
+    if (Array.isArray(poly)) {
+      return { name: defaultZoneName(index), points: poly };
+    }
+    return {
+      name: (poly.name && String(poly.name).trim()) || defaultZoneName(index),
+      points: (poly.points || []).map(function (p) {
+        return { x: p.x, y: p.y };
+      }),
+    };
+  }
 
   function getVideoRect() {
     const v = video();
@@ -123,18 +147,94 @@
           poly.points.reduce(function (s, p) {
             return s + p.y;
           }, 0) / poly.points.length;
+        const lbl = zoneLabel(poly, polyIdx);
         ctx.font = "bold 14px sans-serif";
         ctx.fillStyle = "#ffffff";
         ctx.strokeStyle = "#1b5e20";
         ctx.lineWidth = 3;
-        const lbl = "ROI " + (polyIdx + 1);
-        ctx.strokeText(lbl, cx * c.width - 20, cy * c.height - 8);
-        ctx.fillText(lbl, cx * c.width - 20, cy * c.height - 8);
+        const textX = cx * c.width - Math.min(20, lbl.length * 3);
+        ctx.strokeText(lbl, textX, cy * c.height - 8);
+        ctx.fillText(lbl, textX, cy * c.height - 8);
       }
     });
     if (currentPoints.length) {
       drawPoly(currentPoints, "#ffeb3b", null, null);
     }
+  }
+
+  function renderNamesPanel() {
+    const panel = namesPanel();
+    if (!panel) return;
+    if (!completedPolygons.length) {
+      panel.classList.add("hidden");
+      panel.innerHTML = "";
+      return;
+    }
+    panel.classList.remove("hidden");
+    panel.innerHTML = "";
+    completedPolygons.forEach(function (poly, idx) {
+      const row = document.createElement("div");
+      row.className = "roi-name-row";
+      const label = document.createElement("label");
+      label.textContent = defaultZoneName(idx + 1);
+      const input = document.createElement("input");
+      input.type = "text";
+      input.className = "input";
+      input.maxLength = 64;
+      input.value = zoneLabel(poly, idx);
+      input.placeholder = t("roiNamePlaceholder");
+      input.dataset.polyIndex = String(idx);
+      input.addEventListener("input", function () {
+        const i = Number(input.dataset.polyIndex);
+        if (completedPolygons[i]) {
+          completedPolygons[i].name = input.value;
+          draw();
+          scheduleSave(roiEnabled);
+        }
+      });
+      input.addEventListener("change", function () {
+        const i = Number(input.dataset.polyIndex);
+        if (completedPolygons[i]) {
+          completedPolygons[i].name = input.value.trim() || defaultZoneName(i + 1);
+          input.value = completedPolygons[i].name;
+          saveRoi(roiEnabled);
+        }
+      });
+      const delBtn = document.createElement("button");
+      delBtn.type = "button";
+      delBtn.className = "btn btn-danger btn-sm roi-zone-delete";
+      delBtn.title = t("delete");
+      delBtn.textContent = "×";
+      delBtn.addEventListener("click", function () {
+        deleteZone(idx);
+      });
+      row.appendChild(label);
+      row.appendChild(input);
+      row.appendChild(delBtn);
+      panel.appendChild(row);
+    });
+  }
+
+  function deleteZone(idx) {
+    const poly = completedPolygons[idx];
+    if (!poly) return;
+    const name = zoneLabel(poly, idx);
+    if (!confirm(t("roiDeleteZoneConfirm", { name: name }))) return;
+    if (dragState && dragState.polyIndex === idx) dragState = null;
+    else if (dragState && dragState.polyIndex > idx) dragState.polyIndex -= 1;
+    completedPolygons.splice(idx, 1);
+    currentPoints = [];
+    const stillEnabled = roiEnabled && completedPolygons.length > 0;
+    renderNamesPanel();
+    draw();
+    saveRoi(stillEnabled);
+  }
+
+  function scheduleSave(enabled) {
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(function () {
+      saveRoi(enabled);
+    }, 400);
   }
 
   function findNearestVertex(cx, cy, maxDistancePx) {
@@ -163,16 +263,23 @@
     const res = await fetch(API + "/cameras/" + id + "/roi");
     if (!res.ok) return;
     const data = await res.json();
-    completedPolygons = data.polygons || [];
+    completedPolygons = (data.polygons || []).map(function (poly, idx) {
+      return normalizePolygon(poly, idx + 1);
+    });
     currentPoints = [];
-    updateStatus(data.enabled);
+    roiEnabled = !!data.enabled;
+    updateStatus(roiEnabled);
+    renderNamesPanel();
     draw();
   }
 
   async function saveRoi(enabled) {
     if (!cameraId) return;
-    const polygons = completedPolygons.map(function (p) {
-      return { points: p.points };
+    const polygons = completedPolygons.map(function (p, idx) {
+      return {
+        name: zoneLabel(p, idx),
+        points: p.points,
+      };
     });
     const res = await fetch(API + "/cameras/" + cameraId + "/roi", {
       method: "PUT",
@@ -185,8 +292,12 @@
       return;
     }
     const data = await res.json();
-    completedPolygons = data.polygons || [];
-    updateStatus(data.enabled);
+    completedPolygons = (data.polygons || []).map(function (poly, idx) {
+      return normalizePolygon(poly, idx + 1);
+    });
+    roiEnabled = !!data.enabled;
+    updateStatus(roiEnabled);
+    renderNamesPanel();
     draw();
   }
 
@@ -215,15 +326,18 @@
     if (editBtn) editBtn.classList.toggle("btn-primary", on);
     if (on) layoutCanvas();
     else draw();
-    updateStatus(completedPolygons.length > 0);
+    renderNamesPanel();
+    updateStatus(roiEnabled && completedPolygons.length > 0);
   }
 
   window.DF_setStreamCameraId = function (id) {
     cameraId = id;
     completedPolygons = [];
     currentPoints = [];
+    roiEnabled = false;
     setSelecting(false);
     if (id) loadRoi(id).catch(function () {});
+    else renderNamesPanel();
   };
 
   window.DF_initRoi = function () {
@@ -250,8 +364,10 @@
         .then(function (data) {
           completedPolygons = data.polygons || [];
           currentPoints = [];
+          roiEnabled = false;
           setSelecting(false);
           updateStatus(false);
+          renderNamesPanel();
           draw();
         });
     });
@@ -266,8 +382,12 @@
       if (!pt) return;
       if (e.button === 2) {
         if (currentPoints.length >= 3) {
-          completedPolygons.push({ points: currentPoints.slice() });
+          completedPolygons.push({
+            name: defaultZoneName(completedPolygons.length + 1),
+            points: currentPoints.slice(),
+          });
           currentPoints = [];
+          renderNamesPanel();
           saveRoi(true);
         }
         return;
@@ -299,14 +419,14 @@
     c.addEventListener("mouseup", function () {
       if (!isSelecting || !dragState) return;
       dragState = null;
-      saveRoi(true);
+      saveRoi(roiEnabled);
       draw();
     });
 
     c.addEventListener("mouseleave", function () {
       if (!isSelecting || !dragState) return;
       dragState = null;
-      saveRoi(true);
+      saveRoi(roiEnabled);
       draw();
     });
 

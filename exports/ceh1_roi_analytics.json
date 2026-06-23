@@ -1,0 +1,1376 @@
+{
+  "title": "Аналитический отчёт: цех 1",
+  "audience": "директор",
+  "generated_at": "2026-06-19T10:54:44+04:00",
+  "source_file": "ceh1_roi_stats.json",
+  "methodology": {
+    "window": "07:00–19:00 (рабочая смена)",
+    "excluded": "суббота, воскресенье, праздники, неполные дни",
+    "partial_days_excluded_from_averages": [
+      "2026-06-03"
+    ],
+    "holidays_excluded": [
+      "2026-06-12"
+    ]
+  },
+  "period": {
+    "from": "2026-06-03",
+    "to": "2026-06-10",
+    "all_days": [
+      "2026-06-03",
+      "2026-06-04",
+      "2026-06-05",
+      "2026-06-06",
+      "2026-06-07",
+      "2026-06-08",
+      "2026-06-09",
+      "2026-06-10"
+    ],
+    "workdays_analyzed": [
+      "2026-06-04",
+      "2026-06-05",
+      "2026-06-08",
+      "2026-06-09",
+      "2026-06-10"
+    ],
+    "weekends_excluded": [
+      "2026-06-06 (сб)",
+      "2026-06-07 (вс)"
+    ],
+    "holidays_excluded": [],
+    "partial_excluded": [
+      "2026-06-03"
+    ]
+  },
+  "executive_summary": [
+    "Проанализировано 5 полных рабочих дней (будни без неполных: 2026-06-03).",
+    "Зона 1 — лидер: 4:09:35 работы, загрузка 38.1%.",
+    "Зона 2 — аутсайдер: 0:55:01 работы, загрузка 8.1%. Требует внимания.",
+    "Зона 3 — разброс от 0:33:06 до 1:49:27 работы в день.",
+    "Лучший день цеха: 2026-06-10 (ср) — загрузка 22.8%.",
+    "Слабый день цеха: 2026-06-04 (чт) — загрузка 19.2%.",
+    "Добавлены разрезы по неделям (2) и месяцам (1) с таблицами мин/макс загрузки.",
+    "Выявлено 8 отклонений от нормы."
+  ],
+  "zones": {
+    "1": {
+      "label": "Зона 1",
+      "stats_full_workdays": {
+        "days_count": 5,
+        "avg_work_seconds": 14975.288365459443,
+        "avg_idle_seconds": 23185.571244859697,
+        "avg_work_time": "4:09:35",
+        "avg_idle_time": "6:26:26",
+        "avg_utilization_pct": 38.1,
+        "min_work_time": "1:29:58",
+        "max_work_time": "5:36:36",
+        "min_idle_time": "3:30:06",
+        "max_idle_time": "7:43:34",
+        "stdev_work_seconds": 5077.749486076472
+      },
+      "daily": [
+        {
+          "date": "2026-06-03",
+          "weekday": "ср",
+          "week": "2026-W23",
+          "month": "июнь 2026",
+          "is_weekend": false,
+          "is_holiday": false,
+          "partial_day": true,
+          "analyzable": true,
+          "analyzable_for_avg": false,
+          "total_work_seconds": 8607.514166116714,
+          "total_idle_seconds": 36154.73465967178,
+          "total_work_time": "2:23:28",
+          "total_idle_time": "10:02:35",
+          "total_utilization_pct": 19.2,
+          "roi_index": 1,
+          "work_seconds": 5734.928064107895,
+          "idle_seconds": 9185.827624082565,
+          "work_time": "1:35:35",
+          "idle_time": "2:33:06",
+          "utilization_pct": 38.4
+        },
+        {
+          "date": "2026-06-04",
+          "weekday": "чт",
+          "week": "2026-W23",
+          "month": "июнь 2026",
+          "is_weekend": false,
+          "is_holiday": false,
+          "partial_day": false,
+          "analyzable": true,
+          "analyzable_for_avg": true,
+          "total_work_seconds": 24945.2619433403,
+          "total_idle_seconds": 104654.33884096146,
+          "total_work_time": "6:55:45",
+          "total_idle_time": "29:04:14",
+          "total_utilization_pct": 19.2,
+          "roi_index": 1,
+          "work_seconds": 15385.864542007446,
+          "idle_seconds": 27814.00238609314,
+          "work_time": "4:16:26",
+          "idle_time": "7:43:34",
+          "utilization_pct": 35.6
+        },
+        {
+          "date": "2026-06-05",
+          "weekday": "пт",
+          "week": "2026-W23",
+          "month": "июнь 2026",
+          "is_weekend": false,
+          "is_holiday": false,
+          "partial_day": false,
+          "analyzable": true,
+          "analyzable_for_avg": true,
+          "total_work_seconds": 26442.420632839203,
+          "total_idle_seconds": 103157.67357993126,
+          "total_work_time": "7:20:42",
+          "total_idle_time": "28:39:18",
+          "total_utilization_pct": 20.4,
+          "roi_index": 1,
+          "work_seconds": 17946.746423721313,
+          "idle_seconds": 25253.284980535507,
+          "work_time": "4:59:07",
+          "idle_time": "7:00:53",
+          "utilization_pct": 41.5
+        },
+        {
+          "date": "2026-06-06",
+          "weekday": "сб",
+          "week": "2026-W23",
+          "month": "июнь 2026",
+          "is_weekend": true,
+          "is_holiday": false,
+          "partial_day": false,
+          "analyzable": false,
+          "analyzable_for_avg": false,
+          "total_work_seconds": 172.75364875793457,
+          "total_idle_seconds": 129426.78422808647,
+          "total_work_time": "0:02:53",
+          "total_idle_time": "35:57:07",
+          "total_utilization_pct": 0.1,
+          "roi_index": 1,
+          "work_seconds": 0.0,
+          "idle_seconds": 43199.845958948135,
+          "work_time": "0:00:00",
+          "idle_time": "12:00:00",
+          "utilization_pct": 0.0
+        },
+        {
+          "date": "2026-06-07",
+          "weekday": "вс",
+          "week": "2026-W23",
+          "month": "июнь 2026",
+          "is_weekend": true,
+          "is_holiday": false,
+          "partial_day": false,
+          "analyzable": false,
+          "analyzable_for_avg": false,
+          "total_work_seconds": 0.0,
+          "total_idle_seconds": 129600.07754945755,
+          "total_work_time": "0:00:00",
+          "total_idle_time": "36:00:00",
+          "total_utilization_pct": 0.0,
+          "roi_index": 1,
+          "work_seconds": 0.0,
+          "idle_seconds": 43200.02584981918,
+          "work_time": "0:00:00",
+          "idle_time": "12:00:00",
+          "utilization_pct": 0.0
+        },
+        {
+          "date": "2026-06-08",
+          "weekday": "пн",
+          "week": "2026-W24",
+          "month": "июнь 2026",
+          "is_weekend": false,
+          "is_holiday": false,
+          "partial_day": false,
+          "analyzable": true,
+          "analyzable_for_avg": true,
+          "total_work_seconds": 26501.21921634674,
+          "total_idle_seconds": 103099.18080544472,
+          "total_work_time": "7:21:41",
+          "total_idle_time": "28:38:19",
+          "total_utilization_pct": 20.4,
+          "roi_index": 1,
+          "work_seconds": 20195.528638124466,
+          "idle_seconds": 23004.604702472687,
+          "work_time": "5:36:36",
+          "idle_time": "6:23:25",
+          "utilization_pct": 46.7
+        },
+        {
+          "date": "2026-06-09",
+          "weekday": "вт",
+          "week": "2026-W24",
+          "month": "июнь 2026",
+          "is_weekend": false,
+          "is_holiday": false,
+          "partial_day": false,
+          "analyzable": true,
+          "analyzable_for_avg": true,
+          "total_work_seconds": 25655.002713918686,
+          "total_idle_seconds": 103945.18986225128,
+          "total_work_time": "7:07:35",
+          "total_idle_time": "28:52:25",
+          "total_utilization_pct": 19.8,
+          "roi_index": 1,
+          "work_seconds": 15949.996616125107,
+          "idle_seconds": 27250.06757593155,
+          "work_time": "4:25:50",
+          "idle_time": "7:34:10",
+          "utilization_pct": 36.9
+        },
+        {
+          "date": "2026-06-10",
+          "weekday": "ср",
+          "week": "2026-W24",
+          "month": "июнь 2026",
+          "is_weekend": false,
+          "is_holiday": false,
+          "partial_day": false,
+          "analyzable": true,
+          "analyzable_for_avg": true,
+          "total_work_seconds": 12340.247176885605,
+          "total_idle_seconds": 41672.35938286781,
+          "total_work_time": "3:25:40",
+          "total_idle_time": "11:34:32",
+          "total_utilization_pct": 22.8,
+          "roi_index": 1,
+          "work_seconds": 5398.305607318878,
+          "idle_seconds": 12605.896579265594,
+          "work_time": "1:29:58",
+          "idle_time": "3:30:06",
+          "utilization_pct": 30.0
+        }
+      ]
+    },
+    "2": {
+      "label": "Зона 2",
+      "stats_full_workdays": {
+        "days_count": 5,
+        "avg_work_seconds": 3300.666853427887,
+        "avg_idle_seconds": 34860.19275689125,
+        "avg_work_time": "0:55:01",
+        "avg_idle_time": "9:41:00",
+        "avg_utilization_pct": 8.1,
+        "min_work_time": "0:12:27",
+        "max_work_time": "1:14:39",
+        "min_idle_time": "4:47:37",
+        "max_idle_time": "11:10:07",
+        "stdev_work_seconds": 1377.2019771977286
+      },
+      "daily": [
+        {
+          "date": "2026-06-03",
+          "weekday": "ср",
+          "week": "2026-W23",
+          "month": "июнь 2026",
+          "is_weekend": false,
+          "is_holiday": false,
+          "partial_day": true,
+          "analyzable": true,
+          "analyzable_for_avg": false,
+          "total_work_seconds": 8607.514166116714,
+          "total_idle_seconds": 36154.73465967178,
+          "total_work_time": "2:23:28",
+          "total_idle_time": "10:02:35",
+          "total_utilization_pct": 19.2,
+          "roi_index": 2,
+          "work_seconds": 1124.8589153289795,
+          "idle_seconds": 13795.889208555222,
+          "work_time": "0:18:45",
+          "idle_time": "3:49:56",
+          "utilization_pct": 7.5
+        },
+        {
+          "date": "2026-06-04",
+          "weekday": "чт",
+          "week": "2026-W23",
+          "month": "июнь 2026",
+          "is_weekend": false,
+          "is_holiday": false,
+          "partial_day": false,
+          "analyzable": true,
+          "analyzable_for_avg": true,
+          "total_work_seconds": 24945.2619433403,
+          "total_idle_seconds": 104654.33884096146,
+          "total_work_time": "6:55:45",
+          "total_idle_time": "29:04:14",
+          "total_utilization_pct": 19.2,
+          "roi_index": 2,
+          "work_seconds": 2992.5787858963013,
+          "idle_seconds": 40207.288142204285,
+          "work_time": "0:49:53",
+          "idle_time": "11:10:07",
+          "utilization_pct": 6.9
+        },
+        {
+          "date": "2026-06-05",
+          "weekday": "пт",
+          "week": "2026-W23",
+          "month": "июнь 2026",
+          "is_weekend": false,
+          "is_holiday": false,
+          "partial_day": false,
+          "analyzable": true,
+          "analyzable_for_avg": true,
+          "total_work_seconds": 26442.420632839203,
+          "total_idle_seconds": 103157.67357993126,
+          "total_work_time": "7:20:42",
+          "total_idle_time": "28:39:18",
+          "total_utilization_pct": 20.4,
+          "roi_index": 2,
+          "work_seconds": 4478.95836353302,
+          "idle_seconds": 38721.0730407238,
+          "work_time": "1:14:39",
+          "idle_time": "10:45:21",
+          "utilization_pct": 10.4
+        },
+        {
+          "date": "2026-06-06",
+          "weekday": "сб",
+          "week": "2026-W23",
+          "month": "июнь 2026",
+          "is_weekend": true,
+          "is_holiday": false,
+          "partial_day": false,
+          "analyzable": false,
+          "analyzable_for_avg": false,
+          "total_work_seconds": 172.75364875793457,
+          "total_idle_seconds": 129426.78422808647,
+          "total_work_time": "0:02:53",
+          "total_idle_time": "35:57:07",
+          "total_utilization_pct": 0.1,
+          "roi_index": 2,
+          "work_seconds": 0.0,
+          "idle_seconds": 43199.845958948135,
+          "work_time": "0:00:00",
+          "idle_time": "12:00:00",
+          "utilization_pct": 0.0
+        },
+        {
+          "date": "2026-06-07",
+          "weekday": "вс",
+          "week": "2026-W23",
+          "month": "июнь 2026",
+          "is_weekend": true,
+          "is_holiday": false,
+          "partial_day": false,
+          "analyzable": false,
+          "analyzable_for_avg": false,
+          "total_work_seconds": 0.0,
+          "total_idle_seconds": 129600.07754945755,
+          "total_work_time": "0:00:00",
+          "total_idle_time": "36:00:00",
+          "total_utilization_pct": 0.0,
+          "roi_index": 2,
+          "work_seconds": 0.0,
+          "idle_seconds": 43200.02584981918,
+          "work_time": "0:00:00",
+          "idle_time": "12:00:00",
+          "utilization_pct": 0.0
+        },
+        {
+          "date": "2026-06-08",
+          "weekday": "пн",
+          "week": "2026-W24",
+          "month": "июнь 2026",
+          "is_weekend": false,
+          "is_holiday": false,
+          "partial_day": false,
+          "analyzable": true,
+          "analyzable_for_avg": true,
+          "total_work_seconds": 26501.21921634674,
+          "total_idle_seconds": 103099.18080544472,
+          "total_work_time": "7:21:41",
+          "total_idle_time": "28:38:19",
+          "total_utilization_pct": 20.4,
+          "roi_index": 2,
+          "work_seconds": 4319.816386938095,
+          "idle_seconds": 38880.31695365906,
+          "work_time": "1:12:00",
+          "idle_time": "10:48:00",
+          "utilization_pct": 10.0
+        },
+        {
+          "date": "2026-06-09",
+          "weekday": "вт",
+          "week": "2026-W24",
+          "month": "июнь 2026",
+          "is_weekend": false,
+          "is_holiday": false,
+          "partial_day": false,
+          "analyzable": true,
+          "analyzable_for_avg": true,
+          "total_work_seconds": 25655.002713918686,
+          "total_idle_seconds": 103945.18986225128,
+          "total_work_time": "7:07:35",
+          "total_idle_time": "28:52:25",
+          "total_utilization_pct": 19.8,
+          "roi_index": 2,
+          "work_seconds": 3964.816674232483,
+          "idle_seconds": 39235.24751782417,
+          "work_time": "1:06:05",
+          "idle_time": "10:53:55",
+          "utilization_pct": 9.2
+        },
+        {
+          "date": "2026-06-10",
+          "weekday": "ср",
+          "week": "2026-W24",
+          "month": "июнь 2026",
+          "is_weekend": false,
+          "is_holiday": false,
+          "partial_day": false,
+          "analyzable": true,
+          "analyzable_for_avg": true,
+          "total_work_seconds": 12340.247176885605,
+          "total_idle_seconds": 41672.35938286781,
+          "total_work_time": "3:25:40",
+          "total_idle_time": "11:34:32",
+          "total_utilization_pct": 22.8,
+          "roi_index": 2,
+          "work_seconds": 747.1640565395355,
+          "idle_seconds": 17257.038130044937,
+          "work_time": "0:12:27",
+          "idle_time": "4:47:37",
+          "utilization_pct": 4.1
+        }
+      ]
+    },
+    "3": {
+      "label": "Зона 3",
+      "stats_full_workdays": {
+        "days_count": 5,
+        "avg_work_seconds": 4900.875117778778,
+        "avg_idle_seconds": 33259.98449254036,
+        "avg_work_time": "1:21:41",
+        "avg_idle_time": "9:14:20",
+        "avg_utilization_pct": 15.4,
+        "min_work_time": "0:33:06",
+        "max_work_time": "1:49:27",
+        "min_idle_time": "3:16:49",
+        "max_idle_time": "11:26:54",
+        "stdev_work_seconds": 1698.9978028107917
+      },
+      "daily": [
+        {
+          "date": "2026-06-03",
+          "weekday": "ср",
+          "week": "2026-W23",
+          "month": "июнь 2026",
+          "is_weekend": false,
+          "is_holiday": false,
+          "partial_day": true,
+          "analyzable": true,
+          "analyzable_for_avg": false,
+          "total_work_seconds": 8607.514166116714,
+          "total_idle_seconds": 36154.73465967178,
+          "total_work_time": "2:23:28",
+          "total_idle_time": "10:02:35",
+          "total_utilization_pct": 19.2,
+          "roi_index": 3,
+          "work_seconds": 1747.72718667984,
+          "idle_seconds": 13173.017827033997,
+          "work_time": "0:29:08",
+          "idle_time": "3:39:33",
+          "utilization_pct": 11.7
+        },
+        {
+          "date": "2026-06-04",
+          "weekday": "чт",
+          "week": "2026-W23",
+          "month": "июнь 2026",
+          "is_weekend": false,
+          "is_holiday": false,
+          "partial_day": false,
+          "analyzable": true,
+          "analyzable_for_avg": true,
+          "total_work_seconds": 24945.2619433403,
+          "total_idle_seconds": 104654.33884096146,
+          "total_work_time": "6:55:45",
+          "total_idle_time": "29:04:14",
+          "total_utilization_pct": 19.2,
+          "roi_index": 3,
+          "work_seconds": 6566.818615436554,
+          "idle_seconds": 36633.04831266403,
+          "work_time": "1:49:27",
+          "idle_time": "10:10:33",
+          "utilization_pct": 15.2
+        },
+        {
+          "date": "2026-06-05",
+          "weekday": "пт",
+          "week": "2026-W23",
+          "month": "июнь 2026",
+          "is_weekend": false,
+          "is_holiday": false,
+          "partial_day": false,
+          "analyzable": true,
+          "analyzable_for_avg": true,
+          "total_work_seconds": 26442.420632839203,
+          "total_idle_seconds": 103157.67357993126,
+          "total_work_time": "7:20:42",
+          "total_idle_time": "28:39:18",
+          "total_utilization_pct": 20.4,
+          "roi_index": 3,
+          "work_seconds": 4016.7158455848694,
+          "idle_seconds": 39183.31555867195,
+          "work_time": "1:06:57",
+          "idle_time": "10:53:03",
+          "utilization_pct": 9.3
+        },
+        {
+          "date": "2026-06-06",
+          "weekday": "сб",
+          "week": "2026-W23",
+          "month": "июнь 2026",
+          "is_weekend": true,
+          "is_holiday": false,
+          "partial_day": false,
+          "analyzable": false,
+          "analyzable_for_avg": false,
+          "total_work_seconds": 172.75364875793457,
+          "total_idle_seconds": 129426.78422808647,
+          "total_work_time": "0:02:53",
+          "total_idle_time": "35:57:07",
+          "total_utilization_pct": 0.1,
+          "roi_index": 3,
+          "work_seconds": 172.75364875793457,
+          "idle_seconds": 43027.0923101902,
+          "work_time": "0:02:53",
+          "idle_time": "11:57:07",
+          "utilization_pct": 0.4
+        },
+        {
+          "date": "2026-06-07",
+          "weekday": "вс",
+          "week": "2026-W23",
+          "month": "июнь 2026",
+          "is_weekend": true,
+          "is_holiday": false,
+          "partial_day": false,
+          "analyzable": false,
+          "analyzable_for_avg": false,
+          "total_work_seconds": 0.0,
+          "total_idle_seconds": 129600.07754945755,
+          "total_work_time": "0:00:00",
+          "total_idle_time": "36:00:00",
+          "total_utilization_pct": 0.0,
+          "roi_index": 3,
+          "work_seconds": 0.0,
+          "idle_seconds": 43200.02584981918,
+          "work_time": "0:00:00",
+          "idle_time": "12:00:00",
+          "utilization_pct": 0.0
+        },
+        {
+          "date": "2026-06-08",
+          "weekday": "пн",
+          "week": "2026-W24",
+          "month": "июнь 2026",
+          "is_weekend": false,
+          "is_holiday": false,
+          "partial_day": false,
+          "analyzable": true,
+          "analyzable_for_avg": true,
+          "total_work_seconds": 26501.21921634674,
+          "total_idle_seconds": 103099.18080544472,
+          "total_work_time": "7:21:41",
+          "total_idle_time": "28:38:19",
+          "total_utilization_pct": 20.4,
+          "roi_index": 3,
+          "work_seconds": 1985.8741912841797,
+          "idle_seconds": 41214.25914931297,
+          "work_time": "0:33:06",
+          "idle_time": "11:26:54",
+          "utilization_pct": 4.6
+        },
+        {
+          "date": "2026-06-09",
+          "weekday": "вт",
+          "week": "2026-W24",
+          "month": "июнь 2026",
+          "is_weekend": false,
+          "is_holiday": false,
+          "partial_day": false,
+          "analyzable": true,
+          "analyzable_for_avg": true,
+          "total_work_seconds": 25655.002713918686,
+          "total_idle_seconds": 103945.18986225128,
+          "total_work_time": "7:07:35",
+          "total_idle_time": "28:52:25",
+          "total_utilization_pct": 19.8,
+          "roi_index": 3,
+          "work_seconds": 5740.189423561096,
+          "idle_seconds": 37459.87476849556,
+          "work_time": "1:35:40",
+          "idle_time": "10:24:20",
+          "utilization_pct": 13.3
+        },
+        {
+          "date": "2026-06-10",
+          "weekday": "ср",
+          "week": "2026-W24",
+          "month": "июнь 2026",
+          "is_weekend": false,
+          "is_holiday": false,
+          "partial_day": false,
+          "analyzable": true,
+          "analyzable_for_avg": true,
+          "total_work_seconds": 12340.247176885605,
+          "total_idle_seconds": 41672.35938286781,
+          "total_work_time": "3:25:40",
+          "total_idle_time": "11:34:32",
+          "total_utilization_pct": 22.8,
+          "roi_index": 3,
+          "work_seconds": 6194.777513027191,
+          "idle_seconds": 11809.424673557281,
+          "work_time": "1:43:15",
+          "idle_time": "3:16:49",
+          "utilization_pct": 34.4
+        }
+      ]
+    }
+  },
+  "weekly": {
+    "by_zone": [
+      {
+        "zone": 1,
+        "periods": [
+          {
+            "period": "2026-W23",
+            "period_dates": [
+              "2026-06-04",
+              "2026-06-05"
+            ],
+            "period_range": "04.06 – 05.06",
+            "days_count": 2,
+            "avg_work_seconds": 16666.30548286438,
+            "avg_idle_seconds": 26533.643683314323,
+            "avg_work_time": "4:37:46",
+            "avg_idle_time": "7:22:14",
+            "avg_utilization_pct": 38.5,
+            "total_work_time": "9:15:33",
+            "total_idle_time": "14:44:27"
+          },
+          {
+            "period": "2026-W24",
+            "period_dates": [
+              "2026-06-08",
+              "2026-06-09",
+              "2026-06-10"
+            ],
+            "period_range": "08.06 – 10.06",
+            "days_count": 3,
+            "avg_work_seconds": 13847.943620522818,
+            "avg_idle_seconds": 20953.52295255661,
+            "avg_work_time": "3:50:48",
+            "avg_idle_time": "5:49:14",
+            "avg_utilization_pct": 37.9,
+            "total_work_time": "11:32:24",
+            "total_idle_time": "17:27:41"
+          }
+        ]
+      },
+      {
+        "zone": 2,
+        "periods": [
+          {
+            "period": "2026-W23",
+            "period_dates": [
+              "2026-06-04",
+              "2026-06-05"
+            ],
+            "period_range": "04.06 – 05.06",
+            "days_count": 2,
+            "avg_work_seconds": 3735.7685747146606,
+            "avg_idle_seconds": 39464.18059146404,
+            "avg_work_time": "1:02:16",
+            "avg_idle_time": "10:57:44",
+            "avg_utilization_pct": 8.7,
+            "total_work_time": "2:04:32",
+            "total_idle_time": "21:55:28"
+          },
+          {
+            "period": "2026-W24",
+            "period_dates": [
+              "2026-06-08",
+              "2026-06-09",
+              "2026-06-10"
+            ],
+            "period_range": "08.06 – 10.06",
+            "days_count": 3,
+            "avg_work_seconds": 3010.5990392367044,
+            "avg_idle_seconds": 31790.867533842724,
+            "avg_work_time": "0:50:11",
+            "avg_idle_time": "8:49:51",
+            "avg_utilization_pct": 7.8,
+            "total_work_time": "2:30:32",
+            "total_idle_time": "26:29:33"
+          }
+        ]
+      },
+      {
+        "zone": 3,
+        "periods": [
+          {
+            "period": "2026-W23",
+            "period_dates": [
+              "2026-06-04",
+              "2026-06-05"
+            ],
+            "period_range": "04.06 – 05.06",
+            "days_count": 2,
+            "avg_work_seconds": 5291.767230510712,
+            "avg_idle_seconds": 37908.18193566799,
+            "avg_work_time": "1:28:12",
+            "avg_idle_time": "10:31:48",
+            "avg_utilization_pct": 12.2,
+            "total_work_time": "2:56:24",
+            "total_idle_time": "21:03:36"
+          },
+          {
+            "period": "2026-W24",
+            "period_dates": [
+              "2026-06-08",
+              "2026-06-09",
+              "2026-06-10"
+            ],
+            "period_range": "08.06 – 10.06",
+            "days_count": 3,
+            "avg_work_seconds": 4640.280375957489,
+            "avg_idle_seconds": 30161.186197121937,
+            "avg_work_time": "1:17:20",
+            "avg_idle_time": "8:22:41",
+            "avg_utilization_pct": 17.4,
+            "total_work_time": "3:52:01",
+            "total_idle_time": "25:08:04"
+          }
+        ]
+      }
+    ],
+    "shop": [
+      {
+        "period": "2026-W23",
+        "period_dates": [
+          "2026-06-04",
+          "2026-06-05"
+        ],
+        "period_range": "04.06 – 05.06",
+        "days_count": 2,
+        "avg_work_seconds": 25693.841288089752,
+        "avg_idle_seconds": 103906.00621044636,
+        "avg_work_time": "7:08:14",
+        "avg_idle_time": "28:51:46",
+        "avg_utilization_pct": 19.8,
+        "total_work_time": "14:16:28",
+        "total_idle_time": "57:43:32"
+      },
+      {
+        "period": "2026-W24",
+        "period_dates": [
+          "2026-06-08",
+          "2026-06-09",
+          "2026-06-10"
+        ],
+        "period_range": "08.06 – 10.06",
+        "days_count": 3,
+        "avg_work_seconds": 21498.82303571701,
+        "avg_idle_seconds": 82905.57668352127,
+        "avg_work_time": "5:58:19",
+        "avg_idle_time": "23:01:46",
+        "avg_utilization_pct": 21.0,
+        "total_work_time": "17:54:56",
+        "total_idle_time": "69:05:17"
+      }
+    ],
+    "min_max_by_zone": [
+      {
+        "zone": 1,
+        "rows": [
+          {
+            "period_label": "Неделя",
+            "period": "2026-W23",
+            "period_range": "04.06 – 05.06",
+            "days_in_period": 2,
+            "max_date": "2026-06-05",
+            "max_weekday": "пт",
+            "max_utilization_pct": 41.5,
+            "max_work_time": "4:59:07",
+            "max_idle_time": "7:00:53",
+            "min_date": "2026-06-04",
+            "min_weekday": "чт",
+            "min_utilization_pct": 35.6,
+            "min_work_time": "4:16:26",
+            "min_idle_time": "7:43:34"
+          },
+          {
+            "period_label": "Неделя",
+            "period": "2026-W24",
+            "period_range": "08.06 – 10.06",
+            "days_in_period": 3,
+            "max_date": "2026-06-08",
+            "max_weekday": "пн",
+            "max_utilization_pct": 46.7,
+            "max_work_time": "5:36:36",
+            "max_idle_time": "6:23:25",
+            "min_date": "2026-06-10",
+            "min_weekday": "ср",
+            "min_utilization_pct": 30.0,
+            "min_work_time": "1:29:58",
+            "min_idle_time": "3:30:06"
+          }
+        ]
+      },
+      {
+        "zone": 2,
+        "rows": [
+          {
+            "period_label": "Неделя",
+            "period": "2026-W23",
+            "period_range": "04.06 – 05.06",
+            "days_in_period": 2,
+            "max_date": "2026-06-05",
+            "max_weekday": "пт",
+            "max_utilization_pct": 10.4,
+            "max_work_time": "1:14:39",
+            "max_idle_time": "10:45:21",
+            "min_date": "2026-06-04",
+            "min_weekday": "чт",
+            "min_utilization_pct": 6.9,
+            "min_work_time": "0:49:53",
+            "min_idle_time": "11:10:07"
+          },
+          {
+            "period_label": "Неделя",
+            "period": "2026-W24",
+            "period_range": "08.06 – 10.06",
+            "days_in_period": 3,
+            "max_date": "2026-06-08",
+            "max_weekday": "пн",
+            "max_utilization_pct": 10.0,
+            "max_work_time": "1:12:00",
+            "max_idle_time": "10:48:00",
+            "min_date": "2026-06-10",
+            "min_weekday": "ср",
+            "min_utilization_pct": 4.1,
+            "min_work_time": "0:12:27",
+            "min_idle_time": "4:47:37"
+          }
+        ]
+      },
+      {
+        "zone": 3,
+        "rows": [
+          {
+            "period_label": "Неделя",
+            "period": "2026-W23",
+            "period_range": "04.06 – 05.06",
+            "days_in_period": 2,
+            "max_date": "2026-06-04",
+            "max_weekday": "чт",
+            "max_utilization_pct": 15.2,
+            "max_work_time": "1:49:27",
+            "max_idle_time": "10:10:33",
+            "min_date": "2026-06-05",
+            "min_weekday": "пт",
+            "min_utilization_pct": 9.3,
+            "min_work_time": "1:06:57",
+            "min_idle_time": "10:53:03"
+          },
+          {
+            "period_label": "Неделя",
+            "period": "2026-W24",
+            "period_range": "08.06 – 10.06",
+            "days_in_period": 3,
+            "max_date": "2026-06-10",
+            "max_weekday": "ср",
+            "max_utilization_pct": 34.4,
+            "max_work_time": "1:43:15",
+            "max_idle_time": "3:16:49",
+            "min_date": "2026-06-08",
+            "min_weekday": "пн",
+            "min_utilization_pct": 4.6,
+            "min_work_time": "0:33:06",
+            "min_idle_time": "11:26:54"
+          }
+        ]
+      }
+    ],
+    "min_max_shop": [
+      {
+        "period_label": "Неделя",
+        "period": "2026-W23",
+        "period_range": "04.06 – 05.06",
+        "days_in_period": 2,
+        "max_date": "2026-06-05",
+        "max_weekday": "пт",
+        "max_utilization_pct": 20.4,
+        "max_work_time": "7:20:42",
+        "max_idle_time": "28:39:18",
+        "min_date": "2026-06-04",
+        "min_weekday": "чт",
+        "min_utilization_pct": 19.2,
+        "min_work_time": "6:55:45",
+        "min_idle_time": "29:04:14"
+      },
+      {
+        "period_label": "Неделя",
+        "period": "2026-W24",
+        "period_range": "08.06 – 10.06",
+        "days_in_period": 3,
+        "max_date": "2026-06-10",
+        "max_weekday": "ср",
+        "max_utilization_pct": 22.8,
+        "max_work_time": "3:25:40",
+        "max_idle_time": "11:34:32",
+        "min_date": "2026-06-09",
+        "min_weekday": "вт",
+        "min_utilization_pct": 19.8,
+        "min_work_time": "7:07:35",
+        "min_idle_time": "28:52:25"
+      }
+    ]
+  },
+  "monthly": {
+    "by_zone": [
+      {
+        "zone": 1,
+        "periods": [
+          {
+            "period": "июнь 2026",
+            "period_dates": [
+              "2026-06-04",
+              "2026-06-05",
+              "2026-06-08",
+              "2026-06-09",
+              "2026-06-10"
+            ],
+            "period_range": "июнь 2026",
+            "days_count": 5,
+            "avg_work_seconds": 14975.288365459443,
+            "avg_idle_seconds": 23185.571244859697,
+            "avg_work_time": "4:09:35",
+            "avg_idle_time": "6:26:26",
+            "avg_utilization_pct": 38.1,
+            "total_work_time": "20:47:56",
+            "total_idle_time": "32:12:08"
+          }
+        ]
+      },
+      {
+        "zone": 2,
+        "periods": [
+          {
+            "period": "июнь 2026",
+            "period_dates": [
+              "2026-06-04",
+              "2026-06-05",
+              "2026-06-08",
+              "2026-06-09",
+              "2026-06-10"
+            ],
+            "period_range": "июнь 2026",
+            "days_count": 5,
+            "avg_work_seconds": 3300.666853427887,
+            "avg_idle_seconds": 34860.19275689125,
+            "avg_work_time": "0:55:01",
+            "avg_idle_time": "9:41:00",
+            "avg_utilization_pct": 8.1,
+            "total_work_time": "4:35:03",
+            "total_idle_time": "48:25:01"
+          }
+        ]
+      },
+      {
+        "zone": 3,
+        "periods": [
+          {
+            "period": "июнь 2026",
+            "period_dates": [
+              "2026-06-04",
+              "2026-06-05",
+              "2026-06-08",
+              "2026-06-09",
+              "2026-06-10"
+            ],
+            "period_range": "июнь 2026",
+            "days_count": 5,
+            "avg_work_seconds": 4900.875117778778,
+            "avg_idle_seconds": 33259.98449254036,
+            "avg_work_time": "1:21:41",
+            "avg_idle_time": "9:14:20",
+            "avg_utilization_pct": 15.4,
+            "total_work_time": "6:48:24",
+            "total_idle_time": "46:11:40"
+          }
+        ]
+      }
+    ],
+    "shop": [
+      {
+        "period": "июнь 2026",
+        "period_dates": [
+          "2026-06-04",
+          "2026-06-05",
+          "2026-06-08",
+          "2026-06-09",
+          "2026-06-10"
+        ],
+        "period_range": "июнь 2026",
+        "days_count": 5,
+        "avg_work_seconds": 23176.830336666106,
+        "avg_idle_seconds": 91305.7484942913,
+        "avg_work_time": "6:26:17",
+        "avg_idle_time": "25:21:46",
+        "avg_utilization_pct": 20.5,
+        "total_work_time": "32:11:24",
+        "total_idle_time": "126:48:49"
+      }
+    ],
+    "min_max_by_zone": [
+      {
+        "zone": 1,
+        "rows": [
+          {
+            "period_label": "Месяц",
+            "period": "июнь 2026",
+            "period_range": "июнь 2026",
+            "days_in_period": 5,
+            "max_date": "2026-06-08",
+            "max_weekday": "пн",
+            "max_utilization_pct": 46.7,
+            "max_work_time": "5:36:36",
+            "max_idle_time": "6:23:25",
+            "min_date": "2026-06-10",
+            "min_weekday": "ср",
+            "min_utilization_pct": 30.0,
+            "min_work_time": "1:29:58",
+            "min_idle_time": "3:30:06"
+          }
+        ]
+      },
+      {
+        "zone": 2,
+        "rows": [
+          {
+            "period_label": "Месяц",
+            "period": "июнь 2026",
+            "period_range": "июнь 2026",
+            "days_in_period": 5,
+            "max_date": "2026-06-05",
+            "max_weekday": "пт",
+            "max_utilization_pct": 10.4,
+            "max_work_time": "1:14:39",
+            "max_idle_time": "10:45:21",
+            "min_date": "2026-06-10",
+            "min_weekday": "ср",
+            "min_utilization_pct": 4.1,
+            "min_work_time": "0:12:27",
+            "min_idle_time": "4:47:37"
+          }
+        ]
+      },
+      {
+        "zone": 3,
+        "rows": [
+          {
+            "period_label": "Месяц",
+            "period": "июнь 2026",
+            "period_range": "июнь 2026",
+            "days_in_period": 5,
+            "max_date": "2026-06-10",
+            "max_weekday": "ср",
+            "max_utilization_pct": 34.4,
+            "max_work_time": "1:43:15",
+            "max_idle_time": "3:16:49",
+            "min_date": "2026-06-08",
+            "min_weekday": "пн",
+            "min_utilization_pct": 4.6,
+            "min_work_time": "0:33:06",
+            "min_idle_time": "11:26:54"
+          }
+        ]
+      }
+    ],
+    "min_max_shop": [
+      {
+        "period_label": "Месяц",
+        "period": "июнь 2026",
+        "period_range": "июнь 2026",
+        "days_in_period": 5,
+        "max_date": "2026-06-10",
+        "max_weekday": "ср",
+        "max_utilization_pct": 22.8,
+        "max_work_time": "3:25:40",
+        "max_idle_time": "11:34:32",
+        "min_date": "2026-06-04",
+        "min_weekday": "чт",
+        "min_utilization_pct": 19.2,
+        "min_work_time": "6:55:45",
+        "min_idle_time": "29:04:14"
+      }
+    ]
+  },
+  "zone_ranking_by_utilization": [
+    {
+      "zone": 1,
+      "avg_utilization_pct": 38.1
+    },
+    {
+      "zone": 3,
+      "avg_utilization_pct": 15.4
+    },
+    {
+      "zone": 2,
+      "avg_utilization_pct": 8.1
+    }
+  ],
+  "zone_highlights": {
+    "1": {
+      "best_day": {
+        "date": "2026-06-08",
+        "weekday": "пн",
+        "work_time": "5:36:36",
+        "utilization_pct": 46.7
+      },
+      "worst_day": {
+        "date": "2026-06-10",
+        "weekday": "ср",
+        "work_time": "1:29:58",
+        "utilization_pct": 30.0
+      }
+    },
+    "2": {
+      "best_day": {
+        "date": "2026-06-05",
+        "weekday": "пт",
+        "work_time": "1:14:39",
+        "utilization_pct": 10.4
+      },
+      "worst_day": {
+        "date": "2026-06-10",
+        "weekday": "ср",
+        "work_time": "0:12:27",
+        "utilization_pct": 4.1
+      }
+    },
+    "3": {
+      "best_day": {
+        "date": "2026-06-10",
+        "weekday": "ср",
+        "work_time": "1:43:15",
+        "utilization_pct": 34.4
+      },
+      "worst_day": {
+        "date": "2026-06-08",
+        "weekday": "пн",
+        "work_time": "0:33:06",
+        "utilization_pct": 4.6
+      }
+    }
+  },
+  "shop_daily_totals": [
+    {
+      "date": "2026-06-03",
+      "weekday": "ср",
+      "week": "2026-W23",
+      "month": "июнь 2026",
+      "is_weekend": false,
+      "is_holiday": false,
+      "partial_day": true,
+      "analyzable": true,
+      "analyzable_for_avg": false,
+      "total_work_seconds": 8607.514166116714,
+      "total_idle_seconds": 36154.73465967178,
+      "total_work_time": "2:23:28",
+      "total_idle_time": "10:02:35",
+      "total_utilization_pct": 19.2
+    },
+    {
+      "date": "2026-06-04",
+      "weekday": "чт",
+      "week": "2026-W23",
+      "month": "июнь 2026",
+      "is_weekend": false,
+      "is_holiday": false,
+      "partial_day": false,
+      "analyzable": true,
+      "analyzable_for_avg": true,
+      "total_work_seconds": 24945.2619433403,
+      "total_idle_seconds": 104654.33884096146,
+      "total_work_time": "6:55:45",
+      "total_idle_time": "29:04:14",
+      "total_utilization_pct": 19.2
+    },
+    {
+      "date": "2026-06-05",
+      "weekday": "пт",
+      "week": "2026-W23",
+      "month": "июнь 2026",
+      "is_weekend": false,
+      "is_holiday": false,
+      "partial_day": false,
+      "analyzable": true,
+      "analyzable_for_avg": true,
+      "total_work_seconds": 26442.420632839203,
+      "total_idle_seconds": 103157.67357993126,
+      "total_work_time": "7:20:42",
+      "total_idle_time": "28:39:18",
+      "total_utilization_pct": 20.4
+    },
+    {
+      "date": "2026-06-08",
+      "weekday": "пн",
+      "week": "2026-W24",
+      "month": "июнь 2026",
+      "is_weekend": false,
+      "is_holiday": false,
+      "partial_day": false,
+      "analyzable": true,
+      "analyzable_for_avg": true,
+      "total_work_seconds": 26501.21921634674,
+      "total_idle_seconds": 103099.18080544472,
+      "total_work_time": "7:21:41",
+      "total_idle_time": "28:38:19",
+      "total_utilization_pct": 20.4
+    },
+    {
+      "date": "2026-06-09",
+      "weekday": "вт",
+      "week": "2026-W24",
+      "month": "июнь 2026",
+      "is_weekend": false,
+      "is_holiday": false,
+      "partial_day": false,
+      "analyzable": true,
+      "analyzable_for_avg": true,
+      "total_work_seconds": 25655.002713918686,
+      "total_idle_seconds": 103945.18986225128,
+      "total_work_time": "7:07:35",
+      "total_idle_time": "28:52:25",
+      "total_utilization_pct": 19.8
+    },
+    {
+      "date": "2026-06-10",
+      "weekday": "ср",
+      "week": "2026-W24",
+      "month": "июнь 2026",
+      "is_weekend": false,
+      "is_holiday": false,
+      "partial_day": false,
+      "analyzable": true,
+      "analyzable_for_avg": true,
+      "total_work_seconds": 12340.247176885605,
+      "total_idle_seconds": 41672.35938286781,
+      "total_work_time": "3:25:40",
+      "total_idle_time": "11:34:32",
+      "total_utilization_pct": 22.8
+    }
+  ],
+  "anomalies": [
+    {
+      "date": "2026-06-04",
+      "weekday": "чт",
+      "zone": 2,
+      "work_time": "0:49:53",
+      "idle_time": "11:10:07",
+      "utilization_pct": 6.9,
+      "notes": [
+        "критически низкая загрузка (6.9%)"
+      ]
+    },
+    {
+      "date": "2026-06-05",
+      "weekday": "пт",
+      "zone": 2,
+      "work_time": "1:14:39",
+      "idle_time": "10:45:21",
+      "utilization_pct": 10.4,
+      "notes": [
+        "критически низкая загрузка (10.4%)"
+      ]
+    },
+    {
+      "date": "2026-06-08",
+      "weekday": "пн",
+      "zone": 2,
+      "work_time": "1:12:00",
+      "idle_time": "10:48:00",
+      "utilization_pct": 10.0,
+      "notes": [
+        "критически низкая загрузка (10.0%)"
+      ]
+    },
+    {
+      "date": "2026-06-08",
+      "weekday": "пн",
+      "zone": 3,
+      "work_time": "0:33:06",
+      "idle_time": "11:26:54",
+      "utilization_pct": 4.6,
+      "notes": [
+        "работа ниже среднего на 59.5%"
+      ]
+    },
+    {
+      "date": "2026-06-09",
+      "weekday": "вт",
+      "zone": 2,
+      "work_time": "1:06:05",
+      "idle_time": "10:53:55",
+      "utilization_pct": 9.2,
+      "notes": [
+        "критически низкая загрузка (9.2%)"
+      ]
+    },
+    {
+      "date": "2026-06-10",
+      "weekday": "ср",
+      "zone": 1,
+      "work_time": "1:29:58",
+      "idle_time": "3:30:06",
+      "utilization_pct": 30.0,
+      "notes": [
+        "работа ниже среднего на 64.0%",
+        "простой ниже среднего на 45.6%"
+      ]
+    },
+    {
+      "date": "2026-06-10",
+      "weekday": "ср",
+      "zone": 2,
+      "work_time": "0:12:27",
+      "idle_time": "4:47:37",
+      "utilization_pct": 4.1,
+      "notes": [
+        "работа ниже среднего на 77.4%",
+        "простой ниже среднего на 50.5%",
+        "критически низкая загрузка (4.1%)"
+      ]
+    },
+    {
+      "date": "2026-06-10",
+      "weekday": "ср",
+      "zone": 3,
+      "work_time": "1:43:15",
+      "idle_time": "3:16:49",
+      "utilization_pct": 34.4,
+      "notes": [
+        "простой ниже среднего на 64.5%"
+      ]
+    }
+  ],
+  "key_observations": [
+    "Дисбаланс зон: зона 1 — 38.1%, зона 2 — 8.1%, зона 3 — 15.4%.",
+    "В таблицах по неделям и месяцам зафиксированы конкретные дни с максимальной и минимальной загрузкой по каждой зоне.",
+    "Лучший день цеха (2026-06-10) стоит сопоставить с планом производства и составом смены.",
+    "Слабый день (2026-06-04) — проверить причину просадки (простой, отсутствие персонала, сбой детекции).",
+    "Зона 2 стабильно ниже 12% загрузки — рекомендуется проверить геометрию ROI и фактическое использование рабочего места.",
+    "Для управленческих решений использовать недельные таблицы мин/макс — они показывают разброс внутри короткого периода."
+  ]
+}

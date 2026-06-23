@@ -35,6 +35,11 @@
     return s + "с";
   }
 
+  function zoneDisplayName(z) {
+    const name = z && z.roi_name ? String(z.roi_name).trim() : "";
+    return name || t("statsZoneLabel", { n: z.roi_index });
+  }
+
   function fmtDateRu(dateStr) {
     const p = dateStr.split("-").map(Number);
     if (p.length !== 3) return dateStr;
@@ -305,7 +310,7 @@
             const tr = document.createElement("tr");
             tr.innerHTML =
               "<td>" +
-              t("statsZoneLabel", { n: z.roi_index }) +
+              zoneDisplayName(z) +
               "</td><td>" +
               fmtDuration(z.work_seconds) +
               "</td><td>" +

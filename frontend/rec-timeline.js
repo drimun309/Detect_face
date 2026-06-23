@@ -40,7 +40,13 @@
     return String(n).padStart(2, "0");
   }
 
-  function fmtDuration(sec) {
+  function zoneDisplayName(z) {
+    const name = z && z.roi_name ? String(z.roi_name).trim() : "";
+    if (name) return name;
+    return window.DF_I18N
+      ? window.DF_I18N.t("statsZoneLabel", { n: z.roi_index })
+      : "ROI " + z.roi_index;
+  }
     const total = Math.max(0, Math.floor(sec));
     const h = Math.floor(total / 3600);
     const m = Math.floor((total % 3600) / 60);
@@ -345,7 +351,7 @@
 
         const lbl = document.createElement("span");
         lbl.className = "rec-timeline-zone-label";
-        lbl.textContent = "ROI " + z.roi_index;
+        lbl.textContent = zoneDisplayName(z);
         if (mode === "day") {
           const workSec = z.daily_work_seconds || 0;
           const idleSec = z.daily_idle_seconds || 0;
@@ -395,6 +401,7 @@
         return {
           roi_index: z.roi_index,
           roi_key: z.roi_key,
+          roi_name: z.roi_name || "",
           segments: mergeSegments(z.segments, rangeStart, rangeEnd),
         };
       }),

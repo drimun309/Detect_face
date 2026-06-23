@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 class RoiDailyZoneStats(BaseModel):
     roi_index: int
     roi_key: str
+    roi_name: str = ""
     work_seconds: float = 0
     idle_seconds: float = 0
     standby_seconds: float = 0
