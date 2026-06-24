@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from src.schema.configs import Configs
+from src.schema.person_model_catalog import infer_person_model_id
 from src.schema.settings_schema import DetectionSettingsSchema
 
 
@@ -13,6 +14,8 @@ class SettingsStore:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._defaults = DetectionSettingsSchema(
             detection_mode="face",
+            person_det_model=infer_person_model_id(cfg.PERSON_DET_ENGINE_PATH),
+            crowdhuman_det_type="both",
             fr_det_conf=cfg.FR_DET_CONF,
             fr_det_nms=cfg.FR_DET_NMS,
             fr_distance=cfg.FR_DISTANCE,

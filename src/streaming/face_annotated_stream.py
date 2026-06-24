@@ -16,7 +16,12 @@ import numpy as np
 from src.engine.fr_onnx_engine import FrOnnxEngine
 from src.engine.person_engine_factory import PersonDetector
 from src.services.face_embedding_store import FaceEmbeddingStore
-from src.utils.face_draw import draw_detections, draw_roi_polygons
+from src.utils.face_draw import (
+    count_workers,
+    draw_detections,
+    draw_roi_polygons,
+    draw_worker_count_badge,
+)
 from src.utils.roi_helpers import (
     assign_detection_to_roi,
     point_in_any_polygon,
@@ -28,6 +33,9 @@ if TYPE_CHECKING:
     from src.services.roi_timer_store import RoiTimerStore
 
 log = get_logger()
+
+MAX_STREAM_WIDTH = 2560
+MAX_STREAM_HEIGHT = 1440
 
 
 @dataclass
@@ -49,6 +57,7 @@ class FaceStreamerConfig:
     roi_enabled: bool = False
     roi_polygons: list[list[tuple[float, float]]] = field(default_factory=list)
     roi_keys: list[str] = field(default_factory=list)
+    max_quality: bool = False
 
 
 class FaceAnnotatedStreamer:
@@ -91,6 +100,7 @@ class FaceAnnotatedStreamer:
             "camera_name": config.camera_name,
             "publish_url": config.publish_url,
             "faces_count": 0,
+            "workers_count": 0,
             "enrolled_faces": face_store.count,
             "infer_fps": 0.0,
             "encode_fps": 0.0,
@@ -100,6 +110,7 @@ class FaceAnnotatedStreamer:
         self._encode_count = 0
         self._last_infer_ts = time.time()
         self._last_encode_ts = time.time()
+        self._source_size: tuple[int, int] | None = None
 
     def _safe_url(self, url: str | None = None) -> str:
         url = url or self.config.rtsp_input_url
@@ -197,7 +208,8 @@ class FaceAnnotatedStreamer:
         self._last_categories = categories
         self._last_names = names
         self._last_distances = distances
-        self.metrics["faces_count"] = len(boxes)
+        self.metrics["workers_count"] = count_workers(boxes, categories)
+        self.metrics["faces_count"] = self.metrics["workers_count"]
 
     def _filter_by_roi(
         self,
@@ -266,21 +278,9 @@ class FaceAnnotatedStreamer:
             return
 
         presence = [False] * len(self.config.roi_polygons)
-        best: tuple[float, list[int]] | None = None
-        for box, score, category in zip(boxes, scores, categories):
-            if (category or "").lower() != "person":
+        for box, _score, category in zip(boxes, scores, categories):
+            if (category or "").lower() not in ("person", "head"):
                 continue
-            conf = float(score or 0.0)
-            if best is not None and conf <= best[0]:
-                continue
-            cx = ((box[0] + box[2]) / 2.0) / width
-            cy = ((box[1] + box[3]) / 2.0) / height
-            idx = assign_detection_to_roi((cx, cy), self.config.roi_polygons)
-            if idx is not None:
-                best = (conf, box)
-
-        if best is not None:
-            box = best[1]
             cx = ((box[0] + box[2]) / 2.0) / width
             cy = ((box[1] + box[3]) / 2.0) / height
             idx = assign_detection_to_roi((cx, cy), self.config.roi_polygons)
@@ -322,18 +322,66 @@ class FaceAnnotatedStreamer:
         out = frame_bgr
         if self.config.roi_enabled and self.config.roi_polygons:
             out = draw_roi_polygons(out, self.config.roi_polygons, labels=self._roi_labels)
-        return draw_detections(
-            out,
-            self._last_boxes,
-            self._last_scores,
-            self._last_categories,
-            self._last_names,
-            self._last_distances,
-            show_unknown_distance=self.config.show_unknown_distance,
+        return draw_worker_count_badge(
+            draw_detections(
+                out,
+                self._last_boxes,
+                self._last_scores,
+                self._last_categories,
+                self._last_names,
+                self._last_distances,
+                show_unknown_distance=self.config.show_unknown_distance,
+            ),
+            int(self.metrics.get("workers_count", 0)),
         )
+
+    def _video_bitrate(self) -> tuple[str, str, str]:
+        width, height = self.config.output_size
+        pixels = width * height
+        if self.config.max_quality or pixels > 1280 * 720:
+            mb = min(12, max(4, int(pixels / (1280 * 720) * 2)))
+            rate = f"{mb}M"
+            return rate, rate, f"{mb * 2}M"
+        return "2M", "2M", "1M"
+
+    @staticmethod
+    def fit_output_size(
+        src_w: int,
+        src_h: int,
+        max_w: int = MAX_STREAM_WIDTH,
+        max_h: int = MAX_STREAM_HEIGHT,
+    ) -> tuple[int, int]:
+        if src_w <= 0 or src_h <= 0:
+            return max_w, max_h
+        scale = min(max_w / src_w, max_h / src_h, 1.0)
+        w = max(320, int(src_w * scale) // 2 * 2)
+        h = max(240, int(src_h * scale) // 2 * 2)
+        return w, h
+
+    def probe_source_size(self) -> tuple[int, int]:
+        if self._source_size and self._source_size[0] > 0 and self._source_size[1] > 0:
+            return self._source_size
+        if self.capture and self.capture.isOpened():
+            for _ in range(5):
+                ret, frame = self.capture.read()
+                if ret and frame is not None and frame.size > 0:
+                    h, w = frame.shape[:2]
+                    if w > 0 and h > 0:
+                        self._source_size = (w, h)
+                        return w, h
+        return self.config.output_size
+
+    def resolve_max_output_size(
+        self,
+        max_w: int = MAX_STREAM_WIDTH,
+        max_h: int = MAX_STREAM_HEIGHT,
+    ) -> tuple[int, int]:
+        sw, sh = self.probe_source_size()
+        return self.fit_output_size(sw, sh, max_w, max_h)
 
     def _build_ffmpeg_cmd(self) -> list[str]:
         width, height = self.config.output_size
+        bitrate, maxrate, bufsize = self._video_bitrate()
         ffmpeg = os.environ.get("FFMPEG_PATH", "ffmpeg")
         return [
             ffmpeg,
@@ -363,11 +411,11 @@ class FaceAnnotatedStreamer:
             "-sc_threshold",
             "0",
             "-b:v",
-            "2M",
+            bitrate,
             "-maxrate",
-            "2M",
+            maxrate,
             "-bufsize",
-            "1M",
+            bufsize,
             "-pix_fmt",
             "yuv420p",
             "-f",
@@ -459,6 +507,9 @@ class FaceAnnotatedStreamer:
         for _ in range(read_attempts):
             ret, frame = self.capture.read()
             if ret and frame is not None and frame.size > 0:
+                h, w = frame.shape[:2]
+                if w > 0 and h > 0:
+                    self._source_size = (w, h)
                 return True
             time.sleep(0.5)
         self._disconnect_rtsp()
@@ -578,6 +629,13 @@ class FaceAnnotatedStreamer:
         if not self._connect_rtsp():
             log.error(f"[cam {self.config.camera_id}] RTSP connect failed")
             return False
+        if self.config.max_quality:
+            self.config.output_size = self.resolve_max_output_size()
+            log.info(
+                f"[cam {self.config.camera_id}] max quality output "
+                f"{self.config.output_size[0]}x{self.config.output_size[1]} "
+                f"(source {self._source_size})"
+            )
         try:
             self._start_ffmpeg()
         except Exception as exc:
@@ -604,4 +662,12 @@ class FaceAnnotatedStreamer:
         log.info(f"[cam {self.config.camera_id}] annotated stream stopped")
 
     def get_metrics(self) -> dict:
-        return dict(self.metrics)
+        out = dict(self.metrics)
+        w, h = self.config.output_size
+        out["stream_width"] = w
+        out["stream_height"] = h
+        out["max_quality"] = self.config.max_quality
+        if self._source_size:
+            out["source_width"] = self._source_size[0]
+            out["source_height"] = self._source_size[1]
+        return out

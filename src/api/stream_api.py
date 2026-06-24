@@ -1,9 +1,14 @@
 """Start/stop face-annotated RTSP streams."""
 
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field
 
 from src.services.camera_store import CameraStore
 from src.streaming.stream_manager import get_stream_manager
+
+
+class StreamQualityUpdate(BaseModel):
+    max_quality: bool = Field(..., description="Максимальное разрешение потока с детекцией")
 
 
 class StreamApi:
@@ -40,6 +45,19 @@ class StreamApi:
             if not manager.stop_stream(camera_id):
                 raise HTTPException(status_code=404, detail="Stream not running")
             return {"ok": True, "camera_id": camera_id}
+
+        @self.router.post("/cameras/{camera_id}/stream/quality")
+        async def set_stream_quality(
+            camera_id: int, payload: StreamQualityUpdate
+        ) -> dict:
+            camera = self.store.get(camera_id)
+            if not camera:
+                raise HTTPException(status_code=404, detail="Camera not found")
+            manager = get_stream_manager()
+            try:
+                return manager.set_stream_max_quality(camera_id, payload.max_quality)
+            except ValueError as exc:
+                raise HTTPException(status_code=404, detail=str(exc)) from exc
 
         @self.router.post("/streams/start-all")
         async def start_all() -> dict:

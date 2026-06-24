@@ -60,7 +60,67 @@ def format_face_label(
 
 
 def format_person_label(score: float) -> str:
-    return f"человек {score:.2f}"
+    return f"работник {score:.2f}"
+
+
+def format_head_label(score: float) -> str:
+    return f"работник {score:.2f}"
+
+
+def worker_count_word(n: int) -> str:
+    n_abs = abs(int(n)) % 100
+    n1 = n_abs % 10
+    if 11 <= n_abs <= 19:
+        return "работников"
+    if n1 == 1:
+        return "работник"
+    if 2 <= n1 <= 4:
+        return "работника"
+    return "работников"
+
+
+def worker_count_text(n: int) -> str:
+    count = max(0, int(n))
+    if count == 0:
+        return "Работников в кадре: нет"
+    return f"В кадре: {count} {worker_count_word(count)}"
+
+
+def count_workers(
+    boxes: list[list[int]],
+    categories: list[str],
+) -> int:
+    if not boxes:
+        return 0
+    persons = sum(1 for c in categories if (c or "").lower() == "person")
+    if persons:
+        return persons
+    heads = sum(1 for c in categories if (c or "").lower() == "head")
+    if heads:
+        return heads
+    return len(boxes)
+
+
+def draw_worker_count_badge(frame: np.ndarray, count: int) -> np.ndarray:
+    text = worker_count_text(count)
+    font_size = 22
+    padding = 10
+    margin = 12
+    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    pil = Image.fromarray(rgb)
+    draw = ImageDraw.Draw(pil)
+    font = get_cyrillic_font(font_size)
+    bbox = draw.textbbox((0, 0), text, font=font)
+    tw = bbox[2] - bbox[0]
+    th = bbox[3] - bbox[1]
+    box_w = tw + padding * 2
+    box_h = th + padding * 2
+    frame_w = pil.width
+    x = frame_w - box_w - margin
+    y = margin
+    draw.rectangle([x, y, x + box_w, y + box_h], fill=(20, 20, 20))
+    draw.text((x + padding, y + padding), text, font=font, fill=(255, 220, 80))
+    return cv2.cvtColor(np.array(pil), cv2.COLOR_RGB2BGR)
 
 
 def draw_roi_polygons(
@@ -123,12 +183,19 @@ def draw_detections(
         cat = (category or "face").lower()
         if cat == "person":
             color = (255, 170, 0)
+        elif cat == "head":
+            color = (68, 68, 255)
         else:
             color = (0, 200, 0) if name else (0, 140, 255)
         dist = None
         if match_distances and i < len(match_distances):
             dist = match_distances[i]
-        label = format_person_label(score) if cat == "person" else format_face_label(name, score, dist, show_unknown_distance)
+        if cat == "person":
+            label = format_person_label(score)
+        elif cat == "head":
+            label = format_head_label(score)
+        else:
+            label = format_face_label(name, score, dist, show_unknown_distance)
         cv2.rectangle(output, (x1, y1), (x2, y2), color, 2)
         tw, th = measure_cyrillic_text(label, font_size)
         label_y = max(y1 - th - 12, 0)

@@ -53,6 +53,10 @@
       streamModalRaw: "Поток: {name}",
       watchDetection: "Смотреть с детекцией",
       watchRaw: "Сырой поток",
+      watchMaxQuality: "Макс. качество",
+      watchMaxQualityOn: "Макс. качество: вкл",
+      watchMaxQualityOff: "Макс. качество: выкл",
+      watchMaxQualityHint: "Переключение разрешения…",
       delete: "Удалить",
       saveCamera: "Сохранить камеру",
       enabled: "Включена",
@@ -72,6 +76,8 @@
       detOn: "вкл",
       detOff: "выкл",
       detInFrame: "в кадре",
+      workersInFrame: "работников в кадре",
+      workersNone: "Работников в кадре: нет",
       confirmDelete: "Удалить камеру {id}?",
       connecting: "Подключение: {name}",
       streamStopped: "Поток остановлен",
@@ -85,6 +91,15 @@
       settingsTitle: "Настройки",
       sectionDetection: "Детекция (YOLO)",
       detectionMode: "Режим детекции",
+      personDetModel: "Модель детекции человека",
+      personDetModelHelp:
+        "YOLOv8s — класс person (COCO). CrowdHuman — тело и голова. YOLO26n — лёгкая ONNX-модель.",
+      crowdhumanDetType: "CrowdHuman: классы",
+      crowdhumanBoth: "Тело и голова",
+      crowdhumanBody: "Только тело",
+      crowdhumanHead: "Только голова",
+      crowdhumanDetTypeHelp:
+        "Для модели CrowdHuman: детектировать тело, голову или оба класса одновременно.",
       modeFace: "Лицо",
       modePerson: "Человек",
       modeFacePerson: "Лицо + человек",
@@ -154,6 +169,8 @@
       streamFps: "FPS потока",
       streamResolution: "Разрешение",
       res720: "1280×720 (HD)",
+      res1080: "1920×1080 (Full HD)",
+      res1440: "2560×1440 (2K)",
       res540: "960×540",
       res360: "640×360 (легче)",
       resHint: "Смена разрешения перезапускает активные потоки.",
@@ -257,6 +274,10 @@
       streamModalRaw: "Stream: {name}",
       watchDetection: "Watch with detection",
       watchRaw: "Raw stream",
+      watchMaxQuality: "Max quality",
+      watchMaxQualityOn: "Max quality: on",
+      watchMaxQualityOff: "Max quality: off",
+      watchMaxQualityHint: "Switching resolution…",
       delete: "Delete",
       saveCamera: "Save camera",
       enabled: "Enabled",
@@ -276,6 +297,8 @@
       detOn: "on",
       detOff: "off",
       detInFrame: "in frame",
+      workersInFrame: "workers in frame",
+      workersNone: "No workers in frame",
       confirmDelete: "Delete camera {id}?",
       connecting: "Connecting: {name}",
       streamStopped: "Stream stopped",
@@ -289,6 +312,15 @@
       settingsTitle: "Settings",
       sectionDetection: "Detection (YOLO)",
       detectionMode: "Detection mode",
+      personDetModel: "Person detection model",
+      personDetModelHelp:
+        "YOLOv8s — COCO person class. CrowdHuman — body and head. YOLO26n — lightweight ONNX.",
+      crowdhumanDetType: "CrowdHuman classes",
+      crowdhumanBoth: "Body and head",
+      crowdhumanBody: "Body only",
+      crowdhumanHead: "Head only",
+      crowdhumanDetTypeHelp:
+        "For CrowdHuman model: detect body, head, or both classes.",
       modeFace: "Face",
       modePerson: "Person",
       modeFacePerson: "Face + person",
@@ -356,6 +388,8 @@
       streamFps: "Stream FPS",
       streamResolution: "Resolution",
       res720: "1280×720 (HD)",
+      res1080: "1920×1080 (Full HD)",
+      res1440: "2560×1440 (2K)",
       res540: "960×540",
       res360: "640×360 (light)",
       resHint: "Resolution change restarts active streams.",
@@ -469,6 +503,15 @@
 
     if (!form) return;
 
+    const crowdhumanGroup = document.getElementById("crowdhuman_det_type_group");
+
+    function updateCrowdHumanOptions() {
+      const isCrowd = form.person_det_model?.value === "crowdhuman_yolov5m";
+      if (crowdhumanGroup) crowdhumanGroup.hidden = !isCrowd;
+    }
+
+    form.person_det_model?.addEventListener("change", updateCrowdHumanOptions);
+
     confRange.addEventListener("input", () => {
       confPct.textContent = confRange.value + "%";
     });
@@ -483,6 +526,13 @@
       try {
         const s = await request(API + "/settings/detection");
         form.detection_mode.value = s.detection_mode || "face";
+        if (form.person_det_model) {
+          form.person_det_model.value = s.person_det_model || "yolov8s";
+        }
+        if (form.crowdhuman_det_type) {
+          form.crowdhuman_det_type.value = s.crowdhuman_det_type || "both";
+        }
+        updateCrowdHumanOptions();
         confRange.value = Math.round(s.fr_det_conf * 100);
         confPct.textContent = confRange.value + "%";
         form.fr_det_nms.value = s.fr_det_nms;
@@ -546,6 +596,8 @@
       const parts = form.stream_resolution.value.split("x");
       const payload = {
         detection_mode: String(form.detection_mode.value || "face"),
+        person_det_model: String(form.person_det_model?.value || "yolov8s"),
+        crowdhuman_det_type: String(form.crowdhuman_det_type?.value || "both"),
         fr_det_conf: Math.min(1, Math.max(0.01, Number(confRange.value) / 100)),
         fr_det_nms: Number(form.fr_det_nms.value),
         fr_distance: Number(distRange.value),
@@ -676,7 +728,76 @@
   let currentCameraId = null;
   let currentCameraName = "";
   let currentUseAnnotated = false;
+  let streamMaxQuality = false;
   let recordingActive = false;
+
+  function updateMaxQualityBtn() {
+    const btn = document.getElementById("stream-max-quality-btn");
+    const player = document.querySelector(".stream-player-wrap");
+    const dialog = document.querySelector(".stream-modal-dialog");
+    if (btn) {
+      const show = currentUseAnnotated && !!currentCameraId;
+      btn.classList.toggle("hidden", !show);
+      btn.classList.toggle("btn-primary", streamMaxQuality);
+      btn.classList.toggle("btn-secondary", !streamMaxQuality);
+      btn.textContent = streamMaxQuality ? t("watchMaxQualityOn") : t("watchMaxQuality");
+      if (!btn.disabled) btn.disabled = false;
+    }
+    if (player) player.classList.toggle("stream-max-quality", streamMaxQuality);
+    if (dialog) dialog.classList.toggle("stream-max-quality", streamMaxQuality);
+    if (streamMaxQuality) window.dispatchEvent(new Event("resize"));
+  }
+
+  async function setStreamMaxQuality(enabled) {
+    if (!currentCameraId || !currentUseAnnotated) return;
+    const btn = document.getElementById("stream-max-quality-btn");
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = t("watchMaxQualityHint");
+    }
+    try {
+      const data = await request(
+        API + "/cameras/" + currentCameraId + "/stream/quality",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ max_quality: !!enabled }),
+        }
+      );
+      streamMaxQuality = !!data.max_quality;
+      if (streamMeta && data.stream_width && data.stream_height) {
+        streamMeta.textContent =
+          currentStreamName +
+          " · " +
+          data.stream_width +
+          "×" +
+          data.stream_height;
+      }
+      isConnected = false;
+      shouldReconnect = true;
+      reconnectAttempt = 0;
+      setTimeout(function () {
+        connectMp4();
+      }, 600);
+    } catch (err) {
+      setStatus(err.message, true);
+    } finally {
+      updateMaxQualityBtn();
+    }
+  }
+
+  function workerCountLabel(n) {
+    const count = Math.max(0, Number(n) || 0);
+    if (count === 0) return t("workersNone");
+    const nAbs = count % 100;
+    const n1 = nAbs % 10;
+    let word = "работников";
+    if (nAbs < 11 || nAbs > 19) {
+      if (n1 === 1) word = "работник";
+      else if (n1 >= 2 && n1 <= 4) word = "работника";
+    }
+    return "В кадре: " + count + " " + word;
+  }
 
   function annotatedRtspUrl(cameraId) {
     return "rtsp://mediamtx:8554/annot_cam_" + cameraId;
@@ -1035,8 +1156,9 @@
     const st = streamById[String(cam.id)];
     let detCell = "—";
     if (st && st.stream_running) {
-      detCell =
-        t("detOn") + " (" + st.faces_count + " " + t("detInFrame") + ")";
+      const wc =
+        st.workers_count != null ? st.workers_count : st.faces_count;
+      detCell = workerCountLabel(wc);
     } else if (cam.enabled) {
       detCell = t("detOff");
     }
@@ -1192,6 +1314,8 @@
     streamModal.classList.remove("hidden");
     streamModal.setAttribute("aria-hidden", "false");
     document.body.style.overflow = "hidden";
+    streamMaxQuality = false;
+    updateMaxQualityBtn();
     window.dispatchEvent(new Event("resize"));
   }
 
@@ -1235,7 +1359,10 @@
     if (useAnnotated) {
       ensureAnnotatedStream(cameraId)
         .then(function () {
-          setTimeout(startView, 400);
+          setTimeout(function () {
+            startView();
+            if (window.DF_syncStreamQuality) window.DF_syncStreamQuality(cameraId);
+          }, 400);
         })
         .catch(function () {
           scheduleReconnect();
@@ -1245,13 +1372,40 @@
     }
   }
 
+  async function syncStreamQualityFromStatus(cameraId) {
+    try {
+      const streams = await request(API + "/streams/status");
+      const item = (streams.items || []).find(function (s) {
+        return String(s.camera_id) === String(cameraId);
+      });
+      if (!item) return;
+      streamMaxQuality = !!item.max_quality;
+      if (streamMeta && item.stream_width && item.stream_height) {
+        streamMeta.textContent =
+          currentStreamName + " · " + item.stream_width + "×" + item.stream_height;
+      }
+      updateMaxQualityBtn();
+    } catch (_) {}
+  }
+
+  window.DF_syncStreamQuality = syncStreamQualityFromStatus;
+
   function closeStream() {
+    if (currentUseAnnotated && currentCameraId && streamMaxQuality) {
+      request(API + "/cameras/" + currentCameraId + "/stream/quality", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ max_quality: false }),
+      }).catch(function () {});
+    }
     cleanupPeer(false);
     if (window.DF_setStreamCameraId) window.DF_setStreamCameraId(null);
     currentStreamName = "";
     currentCameraId = null;
     currentCameraName = "";
     currentUseAnnotated = false;
+    streamMaxQuality = false;
+    updateMaxQualityBtn();
     closeStreamModal();
     if (streamMeta) streamMeta.textContent = "";
     setStreamState("—");
@@ -1449,6 +1603,13 @@
   if (closeStreamBtn) closeStreamBtn.addEventListener("click", closeStream);
   if (streamModalClose) streamModalClose.addEventListener("click", closeStream);
   if (streamModalBackdrop) streamModalBackdrop.addEventListener("click", closeStream);
+
+  const streamMaxQualityBtn = document.getElementById("stream-max-quality-btn");
+  if (streamMaxQualityBtn) {
+    streamMaxQualityBtn.addEventListener("click", function () {
+      setStreamMaxQuality(!streamMaxQuality);
+    });
+  }
 
   const recToggleBtn = document.getElementById("rec-toggle-btn");
   if (recToggleBtn) {

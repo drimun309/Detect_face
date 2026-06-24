@@ -24,10 +24,10 @@ class RecordingSettingsSchema(BaseModel):
     chunk_duration_min: int = Field(10, ge=1, le=60, description="Длительность ролика в минутах")
     # качество: уменьшаем размер записи отдельным перекодированием
     record_width: int = Field(
-        1280, ge=320, le=1920, description="Ширина записи (масштабирование)"
+        1280, ge=320, le=2560, description="Ширина записи (масштабирование)"
     )
     record_height: int = Field(
-        720, ge=240, le=1080, description="Высота записи (масштабирование)"
+        720, ge=240, le=1440, description="Высота записи (масштабирование)"
     )
     record_crf: int = Field(
         28, ge=18, le=40, description="CRF (качество H264): ниже — лучше, выше — меньше размер"
@@ -44,6 +44,14 @@ class DetectionSettingsSchema(BaseModel):
     detection_mode: Literal["face", "person", "face_person"] = Field(
         "face",
         description="Режим детекции: только лица, только люди или вместе",
+    )
+    person_det_model: Literal["yolov8s", "crowdhuman_yolov5m", "yolo26n"] = Field(
+        "yolov8s",
+        description="Модель детекции человека",
+    )
+    crowdhuman_det_type: Literal["both", "body", "head"] = Field(
+        "both",
+        description="CrowdHuman: детектировать тело, голову или оба класса",
     )
 
     fr_det_conf: float = Field(0.25, ge=0.01, le=1.0, description="Порог уверенности детектора YOLOX")
@@ -67,8 +75,8 @@ class DetectionSettingsSchema(BaseModel):
         description="Обрабатывать каждый N-й кадр",
     )
     stream_fps: int = Field(10, ge=1, le=30, description="FPS исходящего потока")
-    stream_width: int = Field(1280, ge=320, le=1920)
-    stream_height: int = Field(720, ge=240, le=1080)
+    stream_width: int = Field(1280, ge=320, le=2560)
+    stream_height: int = Field(720, ge=240, le=1440)
     stream_show_unknown_distance: bool = Field(
         False,
         description="Показывать расстояние для нераспознанных лиц",

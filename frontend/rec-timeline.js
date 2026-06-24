@@ -47,7 +47,9 @@
       ? window.DF_I18N.t("statsZoneLabel", { n: z.roi_index })
       : "ROI " + z.roi_index;
   }
-    const total = Math.max(0, Math.floor(sec));
+
+  function fmtDuration(sec) {
+    const total = Math.max(0, Math.floor(sec || 0));
     const h = Math.floor(total / 3600);
     const m = Math.floor((total % 3600) / 60);
     const s = total % 60;

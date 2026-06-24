@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter, HTTPException
 
+from src.schema.person_model_catalog import list_person_models
 from src.schema.settings_schema import DetectionSettingsSchema
 from src.services.settings_store import SettingsStore
 from src.streaming.stream_manager import get_stream_manager
@@ -14,6 +15,10 @@ class SettingsApi:
         self.setup()
 
     def setup(self) -> None:
+        @self.router.get("/settings/person-models")
+        async def get_person_models() -> dict:
+            return {"items": list_person_models()}
+
         @self.router.get("/settings/detection", response_model=DetectionSettingsSchema)
         async def get_detection_settings() -> DetectionSettingsSchema:
             return self.store.get()

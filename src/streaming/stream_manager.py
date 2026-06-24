@@ -5,14 +5,20 @@ from typing import Dict, Optional
 
 from src.db.pg_db import PgSyncDb
 from src.engine.fr_onnx_engine import FrOnnxEngine
-from src.engine.person_engine_factory import create_person_engine
+from src.engine.person_engine_factory import apply_crowdhuman_det_type, create_person_engine
+from src.schema.person_model_catalog import infer_person_model_id, resolve_person_model_path
 from src.services.face_embedding_store import init_face_embedding_store
 from src.services.roi_timer_store import RoiTimerStore
 from src.schema.camera_schema import CameraSchema
 from src.schema.configs import Configs
 from src.schema.settings_schema import DetectionSettingsSchema
 from src.services.camera_store import CameraStore
-from src.streaming.face_annotated_stream import FaceAnnotatedStreamer, FaceStreamerConfig
+from src.streaming.face_annotated_stream import (
+    FaceAnnotatedStreamer,
+    FaceStreamerConfig,
+    MAX_STREAM_HEIGHT,
+    MAX_STREAM_WIDTH,
+)
 from src.utils.logger import get_logger
 from src.utils.roi_helpers import RoiPolygonData, polygons_points
 from src.utils.rtsp import build_go2rtc_rtsp_url, build_rtsp_url
@@ -29,6 +35,7 @@ class FaceStreamManager:
         self.mediamtx_url = cfg.MEDIAMTX_URL.rstrip("/")
         self.streamers: Dict[int, FaceAnnotatedStreamer] = {}
         self._lock = threading.Lock()
+        self._max_quality: dict[int, bool] = {}
 
         self.engine = FrOnnxEngine(
             det_engine_path=cfg.FR_DET_ENGINE_PATH,
@@ -37,11 +44,10 @@ class FaceStreamManager:
             provider=cfg.FR_PROVIDER,
         )
         self.engine.setup()
-        self.person_engine = create_person_engine(
-            cfg.PERSON_DET_ENGINE_PATH,
-            cfg.FR_PROVIDER,
+        self._person_model_id = ""
+        self.person_engine = self._create_person_engine(
+            infer_person_model_id(cfg.PERSON_DET_ENGINE_PATH)
         )
-        self.person_engine.setup()
 
         self.db = PgSyncDb(
             host=cfg.POSTGRES_HOST,
@@ -54,6 +60,23 @@ class FaceStreamManager:
         self.face_store = init_face_embedding_store(self.db)
         self.roi_timer_store = RoiTimerStore(self.db)
         log.info(f"Face DB ready: {self.face_store.count} embedding(s) loaded")
+
+    def _create_person_engine(self, model_id: str):
+        path = resolve_person_model_path(model_id)
+        log.info(f"Initializing person detector: {model_id} ({path})")
+        engine = create_person_engine(path, self.cfg.FR_PROVIDER)
+        engine.setup()
+        self._person_model_id = model_id
+        self.cfg.PERSON_DET_ENGINE_PATH = path
+        return engine
+
+    def _apply_person_model_settings(self, settings: DetectionSettingsSchema) -> None:
+        if settings.person_det_model != self._person_model_id:
+            self.person_engine = self._create_person_engine(settings.person_det_model)
+            for streamer in self.streamers.values():
+                streamer.person_engine = self.person_engine
+            log.info(f"Person detector switched to {settings.person_det_model}")
+        apply_crowdhuman_det_type(self.person_engine, settings.crowdhuman_det_type)
 
     def apply_detection_settings(self, settings: DetectionSettingsSchema) -> None:
         """Применить настройки к cfg и активным стримам."""
@@ -75,6 +98,8 @@ class FaceStreamManager:
         self.cfg.ROI_TIMER_SWITCH_SEC = settings.roi_timer_switch_sec
         self.cfg.ROI_TIMER_RESET_GRACE_SEC = settings.roi_timer_reset_grace_sec
         self.face_store.refresh_interval_sec = settings.embedding_refresh_sec
+
+        self._apply_person_model_settings(settings)
 
         for streamer in self.streamers.values():
             streamer.roi_switch_seconds = settings.roi_timer_switch_sec
@@ -101,6 +126,8 @@ class FaceStreamManager:
 
         log.info(
             f"Detection settings applied: mode={settings.detection_mode} "
+            f"person_model={settings.person_det_model} "
+            f"crowdhuman_type={settings.crowdhuman_det_type} "
             f"conf={settings.fr_det_conf:.2f} distance={settings.fr_distance:.2f} "
             f"interval={settings.stream_frame_interval} "
             f"roi_switch={settings.roi_timer_switch_sec:.0f}s"
@@ -122,13 +149,18 @@ class FaceStreamManager:
             if self.cfg.GO2RTC_RTSP_URL
             else ""
         )
+        max_q = self._max_quality.get(camera.id, False)
+        if max_q:
+            output_size = (MAX_STREAM_WIDTH, MAX_STREAM_HEIGHT)
+        else:
+            output_size = (self.cfg.STREAM_WIDTH, self.cfg.STREAM_HEIGHT)
         return FaceStreamerConfig(
             camera_id=camera.id,
             camera_name=camera.name,
             rtsp_input_url=go2rtc_rtsp or direct_rtsp,
             rtsp_fallback_url=direct_rtsp if go2rtc_rtsp else "",
             publish_url=f"{self.mediamtx_url}/annot_cam_{camera.id}",
-            output_size=(self.cfg.STREAM_WIDTH, self.cfg.STREAM_HEIGHT),
+            output_size=output_size,
             detection_mode=self.cfg.DETECTION_MODE,
             fps=self.cfg.STREAM_FPS,
             frame_interval=self.cfg.STREAM_FRAME_INTERVAL,
@@ -140,6 +172,7 @@ class FaceStreamManager:
             roi_enabled=roi_enabled,
             roi_polygons=roi_points,
             roi_keys=roi_keys,
+            max_quality=max_q,
         )
 
     def update_roi_polygons(
@@ -202,6 +235,41 @@ class FaceStreamManager:
             return True
         return self.start_stream(camera)
 
+    def set_stream_max_quality(self, camera_id: int, max_quality: bool) -> dict:
+        if not self.camera_store:
+            raise RuntimeError("Camera store not configured")
+        camera = self.camera_store.get(camera_id)
+        if not camera:
+            raise ValueError("Camera not found")
+
+        if max_quality:
+            self._max_quality[camera_id] = True
+        else:
+            self._max_quality.pop(camera_id, None)
+
+        normal_size = (self.cfg.STREAM_WIDTH, self.cfg.STREAM_HEIGHT)
+        if self.is_running(camera_id):
+            self.restart_stream(camera)
+            streamer = self.streamers.get(camera_id)
+            if streamer:
+                new_size = streamer.config.output_size
+            else:
+                new_size = (MAX_STREAM_WIDTH, MAX_STREAM_HEIGHT) if max_quality else normal_size
+        elif max_quality:
+            self.start_stream(camera)
+            streamer = self.streamers.get(camera_id)
+            new_size = streamer.config.output_size if streamer else (MAX_STREAM_WIDTH, MAX_STREAM_HEIGHT)
+        else:
+            new_size = normal_size
+
+        return {
+            "ok": True,
+            "camera_id": camera_id,
+            "max_quality": max_quality,
+            "stream_width": new_size[0],
+            "stream_height": new_size[1],
+        }
+
     def is_running(self, camera_id: int) -> bool:
         return camera_id in self.streamers
 
@@ -225,6 +293,7 @@ class FaceStreamManager:
                     "enabled": camera.enabled,
                     "stream_running": metrics is not None,
                     "faces_count": metrics.get("faces_count", 0) if metrics else 0,
+                    "workers_count": metrics.get("workers_count", 0) if metrics else 0,
                     "infer_fps": metrics.get("infer_fps", 0.0) if metrics else 0.0,
                     "encode_fps": metrics.get("encode_fps", 0.0) if metrics else 0.0,
                     "errors": metrics.get("errors", 0) if metrics else 0,
@@ -234,6 +303,9 @@ class FaceStreamManager:
                         else self.face_store.count
                     ),
                     "publish_url": self.get_publish_url(camera.id),
+                    "stream_width": metrics.get("stream_width") if metrics else None,
+                    "stream_height": metrics.get("stream_height") if metrics else None,
+                    "max_quality": bool(metrics.get("max_quality")) if metrics else False,
                 }
             )
         return statuses

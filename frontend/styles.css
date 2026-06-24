@@ -313,8 +313,11 @@ th {
 }
 
 .stream-toolbar {
-  margin-bottom: 10px;
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
 }
 
 .roi-status {
@@ -581,6 +584,22 @@ th {
   margin-bottom: 10px;
   font-size: 12px;
   color: #888;
+}
+
+.stream-player-wrap.stream-max-quality {
+  aspect-ratio: auto;
+  max-height: min(85vh, calc(100vh - 220px));
+}
+
+.stream-player-wrap.stream-max-quality #stream-video {
+  object-fit: contain;
+  width: 100%;
+  height: auto;
+  max-height: min(85vh, calc(100vh - 220px));
+}
+
+.stream-modal-dialog.stream-max-quality {
+  max-width: min(96vw, 2560px);
 }
 
 .stream-player-wrap {
