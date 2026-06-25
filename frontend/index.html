@@ -68,6 +68,7 @@
                       <th class="col-ip" data-i18n="ip">IP</th>
                       <th class="col-enabled" data-i18n="enabled">Вкл.</th>
                       <th class="col-detection" data-i18n="detection">Детекция</th>
+                      <th class="col-department" data-i18n="department">Отдел</th>
                       <th class="col-actions" data-i18n="actions">Действия</th>
                     </tr>
                   </thead>
@@ -633,11 +634,28 @@
           <button type="button" id="roi-clear-btn" class="btn btn-secondary" data-i18n="roiClear">
             Очистить ROI
           </button>
+          <button
+            type="button"
+            id="people-zone-btn"
+            class="btn btn-secondary"
+            data-i18n="peopleZoneEdit"
+          >
+            Общая зона
+          </button>
+          <button
+            type="button"
+            id="people-zone-clear-btn"
+            class="btn btn-secondary"
+            data-i18n="peopleZoneClear"
+          >
+            Очистить общую
+          </button>
           <button type="button" id="rec-toggle-btn" class="btn btn-secondary" data-i18n="recToggle">
             Запись: выкл.
           </button>
           <span id="roi-status" class="roi-status" data-i18n="roiOff">ROI выкл.</span>
         </div>
+        <p id="people-zone-stats" class="people-zone-stats hidden" aria-live="polite"></p>
         <div id="roi-names-panel" class="roi-names-panel hidden"></div>
         <div class="player-wrap stream-player-wrap">
           <video id="stream-video" autoplay playsinline muted></video>
@@ -656,6 +674,7 @@
         <button type="button" class="modal-close" id="department-modal-close" aria-label="Close">&times;</button>
         <h2 id="department-form-title" class="modal-title" data-i18n="addDepartment">Добавить отдел</h2>
         <form id="department-form">
+          <input type="hidden" id="department-edit-id" name="id" value="" />
           <div class="form-group">
             <label for="department-name" data-i18n="departmentName">Название отдела</label>
             <input id="department-name" name="name" class="form-input" required placeholder="Отдел сборки" />
@@ -761,9 +780,9 @@
       </div>
     </div>
 
-    <script src="/roi.js" charset="UTF-8"></script>
+    <script src="/roi.js?v=8" charset="UTF-8"></script>
     <script src="/rec-timeline.js?v=8" charset="UTF-8"></script>
     <script src="/stats.js?v=2" charset="UTF-8"></script>
-    <script src="/app.js?v=37" charset="UTF-8"></script>
+    <script src="/app.js?v=38" charset="UTF-8"></script>
   </body>
 </html>

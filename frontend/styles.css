@@ -330,6 +330,21 @@ th {
   color: var(--accent-light);
 }
 
+.people-zone-stats {
+  margin: 0 0 10px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 77, 255, 0.35);
+  background: rgba(255, 77, 255, 0.08);
+  color: #f2b8f7;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.people-zone-stats.hidden {
+  display: none;
+}
+
 .roi-names-panel {
   display: flex;
   flex-direction: column;
@@ -971,6 +986,11 @@ td.actions {
   width: 170px;
 }
 
+.cameras-table .col-department {
+  width: 140px;
+  min-width: 120px;
+}
+
 .cameras-table .col-actions {
   width: 1%;
   white-space: nowrap;
@@ -1132,15 +1152,27 @@ td.actions {
   flex: 1;
 }
 
+.cam-dept-select {
+  width: 100%;
+  max-width: 155px;
+  font-size: 12px;
+  padding: 4px 6px;
+}
+
+.dept-edit-btn {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+.dept-delete-btn {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
 .camera-row td:first-child {
   padding-left: 28px;
 }
 
 .camera-row.hidden {
   display: none;
-}
-
-.dept-delete-btn {
-  padding: 4px 10px;
-  font-size: 12px;
 }

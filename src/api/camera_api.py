@@ -8,6 +8,7 @@ from src.schema.camera_schema import (
     CameraSchema,
     CameraUpdateSchema,
 )
+from src.schema.people_zone_schema import PeopleZoneConfig, PeopleZoneResponse
 from src.schema.roi_schema import RoiResponse, RoiUpdate
 from src.services.camera_store import CameraStore
 from src.services.go2rtc_sync import sync_go2rtc_config
@@ -55,6 +56,16 @@ class CameraApi:
         except RuntimeError:
             pass
 
+    def _apply_people_zone_to_stream(self, camera_id: int) -> None:
+        try:
+            manager = get_stream_manager()
+            enabled, polygon, max_workers = self.store.get_people_zone_runtime(
+                camera_id
+            )
+            manager.update_people_zone(camera_id, enabled, polygon, max_workers)
+        except RuntimeError:
+            pass
+
     def _on_camera_changed(self, camera, *, deleted: bool = False) -> None:
         try:
             manager = get_stream_manager()
@@ -90,11 +101,16 @@ class CameraApi:
 
         @self.router.put("/cameras/{camera_id}", response_model=CameraSchema)
         async def update_camera(camera_id: int, payload: CameraUpdateSchema) -> CameraSchema:
-            camera = self.store.update(camera_id, payload)
+            updates = payload.model_dump(exclude_unset=True)
+            try:
+                camera = self.store.update(camera_id, payload)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
             if not camera:
                 raise HTTPException(status_code=404, detail="Camera not found")
-            self._sync_go2rtc()
-            self._on_camera_changed(camera)
+            if updates.keys() - {"department_id"}:
+                self._sync_go2rtc()
+                self._on_camera_changed(camera)
             return camera
 
         @self.router.delete("/cameras/{camera_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -142,3 +158,45 @@ class CameraApi:
                 raise HTTPException(status_code=404, detail="Camera not found")
             self._apply_roi_to_stream(camera_id)
             return roi
+
+        @self.router.get(
+            "/cameras/{camera_id}/people-zone", response_model=PeopleZoneResponse
+        )
+        async def get_people_zone(camera_id: int) -> PeopleZoneResponse:
+            zone = self.store.get_people_zone(camera_id)
+            if not zone:
+                raise HTTPException(status_code=404, detail="Camera not found")
+            try:
+                state = get_stream_manager().people_counter_store.get_state_live(
+                    camera_id, zone.max_workers
+                )
+                data = zone.model_dump()
+                data.update(
+                    current_workers=state.current_workers,
+                    seconds_0_workers=state.seconds_0_workers,
+                    seconds_1_worker=state.seconds_1_worker,
+                    seconds_2_workers=state.seconds_2_workers,
+                    seconds_3_workers=state.seconds_3_workers,
+                    person_seconds=state.person_seconds,
+                )
+                return PeopleZoneResponse(**data)
+            except RuntimeError:
+                pass
+            return zone
+
+        @self.router.put(
+            "/cameras/{camera_id}/people-zone", response_model=PeopleZoneResponse
+        )
+        async def update_people_zone(
+            camera_id: int, payload: PeopleZoneConfig
+        ) -> PeopleZoneResponse:
+            if payload.enabled and len(payload.polygon) < 3:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Для общей зоны нужен полигон (≥3 точки)",
+                )
+            zone = self.store.update_people_zone(camera_id, payload)
+            if not zone:
+                raise HTTPException(status_code=404, detail="Camera not found")
+            self._apply_people_zone_to_stream(camera_id)
+            return zone

@@ -101,6 +101,42 @@ def count_workers(
     return len(boxes)
 
 
+def format_duration_hms(total_seconds: float) -> str:
+    sec = max(0, int(total_seconds))
+    hours = sec // 3600
+    minutes = (sec % 3600) // 60
+    seconds = sec % 60
+    return f"{hours}:{minutes:02d}:{seconds:02d}"
+
+
+def draw_people_zone_badge(
+    frame: np.ndarray,
+    current_workers: int,
+    person_seconds: float,
+    max_workers: int = 3,
+) -> np.ndarray:
+    workers = min(max_workers, max(0, int(current_workers)))
+    time_text = format_duration_hms(person_seconds)
+    text = f"Общая зона: {workers}/{max_workers} · смена {time_text}"
+    font_size = 20
+    padding = 10
+    margin = 12
+    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    pil = Image.fromarray(rgb)
+    draw = ImageDraw.Draw(pil)
+    font = get_cyrillic_font(font_size)
+    bbox = draw.textbbox((0, 0), text, font=font)
+    tw = bbox[2] - bbox[0]
+    th = bbox[3] - bbox[1]
+    box_w = tw + padding * 2
+    box_h = th + padding * 2
+    x = margin
+    y = margin
+    draw.rectangle([x, y, x + box_w, y + box_h], fill=(20, 20, 20))
+    draw.text((x + padding, y + padding), text, font=font, fill=(255, 120, 255))
+    return cv2.cvtColor(np.array(pil), cv2.COLOR_RGB2BGR)
+
+
 def draw_worker_count_badge(frame: np.ndarray, count: int) -> np.ndarray:
     text = worker_count_text(count)
     font_size = 22

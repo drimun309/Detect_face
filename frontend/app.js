@@ -40,7 +40,10 @@
       saveDepartment: "Сохранить отдел",
       confirmDeleteDepartment: "Удалить отдел «{name}»? Камеры останутся без отдела.",
       departmentSaved: "Отдел создан",
+      departmentUpdated: "Отдел переименован",
       departmentDeleted: "Отдел удалён",
+      editDepartment: "Изменить",
+      cameraDepartmentUpdated: "Камера перенесена в другой отдел",
       camerasCount: "{n} кам.",
       cameras: "Камеры",
       syncGo2rtc: "Синхр. go2rtc",
@@ -202,6 +205,16 @@
       roiZoneDefault: "Зона {n}",
       roiNamePlaceholder: "Название зоны",
       roiDeleteZoneConfirm: "Удалить зону «{name}»?",
+      peopleZoneEdit: "Общая зона",
+      peopleZoneClear: "Очистить общую",
+      peopleZoneActive: "Общая зона активна ({n}/3)",
+      peopleZoneStats: "В общей зоне сейчас: {n}/3 · За смену (7–19): {time} чел·ч",
+      peopleZoneShiftHours: "смена {time} чел·ч",
+      peopleZoneNotConfigured: "Общая зона: не настроена",
+      peopleZoneDrawing:
+        "Общая зона: ЛКМ — точки полигона, ПКМ — завершить (мин. 3 точки)",
+      peopleZoneIncomplete: "Для общей зоны нужен полигон из ≥3 точек.",
+      peopleZoneClearConfirm: "Удалить общую зону?",
       enrollHint:
         "Загрузите фото и/или видео — эмбеддинги сохранятся в PostgreSQL.",
       personName: "Имя человека",
@@ -261,7 +274,10 @@
       saveDepartment: "Save department",
       confirmDeleteDepartment: "Delete department «{name}»? Cameras will be unassigned.",
       departmentSaved: "Department created",
+      departmentUpdated: "Department renamed",
       departmentDeleted: "Department deleted",
+      editDepartment: "Rename",
+      cameraDepartmentUpdated: "Camera moved to another department",
       camerasCount: "{n} cam.",
       cameras: "Cameras",
       syncGo2rtc: "Sync go2rtc",
@@ -420,6 +436,16 @@
       roiZoneDefault: "Zone {n}",
       roiNamePlaceholder: "Zone name",
       roiDeleteZoneConfirm: "Delete zone «{name}»?",
+      peopleZoneEdit: "Whole zone",
+      peopleZoneClear: "Clear whole zone",
+      peopleZoneActive: "Whole zone active ({n}/3)",
+      peopleZoneStats: "In whole zone now: {n}/3 · Shift (7–19): {time} person·h",
+      peopleZoneShiftHours: "shift {time} person·h",
+      peopleZoneNotConfigured: "Whole zone: not configured",
+      peopleZoneDrawing:
+        "Whole zone: LMB — polygon points, RMB — finish (min. 3 points)",
+      peopleZoneIncomplete: "Whole zone needs a polygon with at least 3 points.",
+      peopleZoneClearConfirm: "Remove whole zone?",
       enrollTitle: "Enroll to database",
       enrollHint: "Upload photos and/or videos — embeddings are saved to PostgreSQL.",
       personName: "Person name",
@@ -680,9 +706,11 @@
   const departmentForm = document.getElementById("department-form");
   const departmentFormMsg = document.getElementById("department-form-msg");
   const departmentCancelBtn = document.getElementById("department-cancel-btn");
+  const departmentFormTitle = document.getElementById("department-form-title");
   const cameraDepartmentSelect = document.getElementById("camera-department");
   let editingCameraId = null;
   let departmentsCache = [];
+  let editingDepartmentId = null;
   const collapsedDepts = new Set();
 
   function openCameraModal() {
@@ -894,6 +922,7 @@
       reconnectAttempt = 0;
       setStreamState("connected");
       setStatus(t("connecting", { name: currentStreamName }));
+      if (window.DF_onStreamVideoReady) window.DF_onStreamVideoReady();
     };
     streamVideo.onerror = function () {
       isConnected = false;
@@ -905,6 +934,7 @@
       .then(function () {
         isConnected = true;
         setStreamState("connected");
+        if (window.DF_onStreamVideoReady) window.DF_onStreamVideoReady();
       })
       .catch(function (err) {
         console.warn("[MP4] play blocked", err);
@@ -1058,19 +1088,29 @@
     };
   }
 
-  function openDepartmentModal() {
+  function openDepartmentModal(dept) {
     if (!departmentModal) return;
+    editingDepartmentId = dept && dept.id ? dept.id : null;
     if (departmentForm) departmentForm.reset();
+    const idInput = document.getElementById("department-edit-id");
+    if (idInput) idInput.value = editingDepartmentId ? String(editingDepartmentId) : "";
+    if (departmentFormTitle) {
+      departmentFormTitle.textContent = editingDepartmentId
+        ? t("editDepartment") + (dept && dept.name ? ": " + dept.name : "")
+        : t("addDepartment");
+    }
+    const nameInput = document.getElementById("department-name");
+    if (nameInput) nameInput.value = dept && dept.name ? dept.name : "";
     if (departmentFormMsg) departmentFormMsg.textContent = "";
     departmentModal.classList.remove("hidden");
     departmentModal.setAttribute("aria-hidden", "false");
     document.body.style.overflow = "hidden";
-    const nameInput = document.getElementById("department-name");
     if (nameInput) setTimeout(function () { nameInput.focus(); }, 50);
   }
 
   function closeDepartmentModal() {
     if (!departmentModal) return;
+    editingDepartmentId = null;
     departmentModal.classList.add("hidden");
     departmentModal.setAttribute("aria-hidden", "true");
     if (!cameraModal || cameraModal.classList.contains("hidden")) {
@@ -1152,6 +1192,45 @@
     return b;
   }
 
+  function buildCameraDeptSelect(cam) {
+    const sel = document.createElement("select");
+    sel.className = "cam-dept-select form-select";
+    sel.title = t("department");
+    const optNone = document.createElement("option");
+    optNone.value = "";
+    optNone.textContent = t("noDepartment");
+    sel.appendChild(optNone);
+    departmentsCache.forEach(function (dept) {
+      const opt = document.createElement("option");
+      opt.value = String(dept.id);
+      opt.textContent = dept.name;
+      sel.appendChild(opt);
+    });
+    sel.value = cam.department_id ? String(cam.department_id) : "";
+    sel.addEventListener("change", async function () {
+      const prevId = cam.department_id != null ? cam.department_id : null;
+      const newDept = sel.value ? Number(sel.value) : null;
+      if (newDept === prevId) return;
+      sel.disabled = true;
+      try {
+        await request(API + "/cameras/" + cam.id, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ department_id: newDept }),
+        });
+        cam.department_id = newDept;
+        setStatus(t("cameraDepartmentUpdated"));
+        await loadCameras();
+      } catch (err) {
+        sel.value = prevId != null ? String(prevId) : "";
+        setStatus(err.message, true);
+      } finally {
+        sel.disabled = false;
+      }
+    });
+    return sel;
+  }
+
   function buildCameraRow(cam, streamById) {
     const st = streamById[String(cam.id)];
     let detCell = "—";
@@ -1174,6 +1253,9 @@
     tdEn.textContent = cam.enabled ? t("yes") : t("no");
     const tdDet = document.createElement("td");
     tdDet.textContent = detCell;
+    const tdDept = document.createElement("td");
+    tdDept.className = "col-department";
+    tdDept.appendChild(buildCameraDeptSelect(cam));
     const tdAct = document.createElement("td");
     tdAct.className = "actions";
     tdAct.append(
@@ -1192,7 +1274,7 @@
         "data-id": String(cam.id),
       })
     );
-    tr.append(tdId, tdName, tdIp, tdEn, tdDet, tdAct);
+    tr.append(tdId, tdName, tdIp, tdEn, tdDet, tdDept, tdAct);
     return tr;
   }
 
@@ -1219,7 +1301,7 @@
     const header = document.createElement("tr");
     header.className = "dept-header-row";
     const td = document.createElement("td");
-    td.colSpan = 6;
+    td.colSpan = 7;
     const wrap = document.createElement("div");
     wrap.className = "dept-header-cell";
     const toggle = document.createElement("button");
@@ -1238,11 +1320,18 @@
     countEl.textContent = " (" + t("camerasCount", { n: cameras.length }) + ")";
     wrap.append(toggle, titleEl, countEl);
     if (deptId) {
+      const editBtn = mkBtn("dept-edit-btn btn btn-secondary", t("editDepartment"), {
+        "data-dept-id": String(deptId),
+        "data-dept-name": title,
+      });
+      editBtn.addEventListener("click", function () {
+        openDepartmentModal({ id: deptId, name: title });
+      });
       const delBtn = mkBtn("dept-delete-btn btn btn-danger", t("delete"), {
         "data-dept-id": String(deptId),
         "data-dept-name": title,
       });
-      wrap.append(delBtn);
+      wrap.append(editBtn, delBtn);
     }
     td.appendChild(wrap);
     header.appendChild(td);
@@ -1296,7 +1385,7 @@
     if (!departmentsCache.length && !noDept.length) {
       const tr = document.createElement("tr");
       const td = document.createElement("td");
-      td.colSpan = 6;
+      td.colSpan = 7;
       td.className = "help-text";
       td.textContent = t("addCamera");
       tr.appendChild(td);
@@ -1446,7 +1535,9 @@
     });
   }
   if (addDepartmentBtn) {
-    addDepartmentBtn.addEventListener("click", openDepartmentModal);
+    addDepartmentBtn.addEventListener("click", function () {
+      openDepartmentModal();
+    });
   }
   if (departmentCancelBtn) departmentCancelBtn.addEventListener("click", closeDepartmentModal);
   if (departmentModalClose) departmentModalClose.addEventListener("click", closeDepartmentModal);
@@ -1460,12 +1551,21 @@
       if (!name) return;
       if (departmentFormMsg) departmentFormMsg.textContent = t("saving");
       try {
-        await request(API + "/departments", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name: name }),
-        });
-        setStatus(t("departmentSaved"));
+        if (editingDepartmentId) {
+          await request(API + "/departments/" + editingDepartmentId, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name: name }),
+          });
+          setStatus(t("departmentUpdated"));
+        } else {
+          await request(API + "/departments", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name: name }),
+          });
+          setStatus(t("departmentSaved"));
+        }
         closeDepartmentModal();
         await loadCameras();
       } catch (err) {

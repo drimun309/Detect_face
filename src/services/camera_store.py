@@ -14,6 +14,10 @@ from sqlmodel import select
 from src.db.pg_db import PgSyncDb
 from src.schema.camera_schema import CameraCreateSchema, CameraSchema, CameraUpdateSchema
 from src.schema.camera_sql_schema import CameraSqlSchema
+from src.schema.people_zone_schema import (
+    PeopleZoneConfig,
+    PeopleZoneResponse,
+)
 from src.schema.roi_schema import RoiPoint, RoiPolygon, RoiResponse, RoiUpdate
 from src.utils.logger import get_logger
 from src.utils.roi_helpers import (
@@ -39,6 +43,7 @@ class CameraStore:
         self.pg = pg
         self._lock = Lock()
         self._ensure_roi_columns()
+        self._ensure_people_zone_columns()
         self._ensure_department_column()
         self._ensure_roi_timer_table()
         self._migrate_legacy_json_once()
@@ -62,6 +67,25 @@ class CameraStore:
         except SQLAlchemyError as exc:
             self._rollback()
             log.warning(f"ROI columns migration: {exc}")
+
+    def _ensure_people_zone_columns(self) -> None:
+        try:
+            self.pg.session.exec(
+                text(
+                    "ALTER TABLE cameras ADD COLUMN IF NOT EXISTS "
+                    "people_zone_enabled BOOLEAN DEFAULT FALSE"
+                )
+            )
+            self.pg.session.exec(
+                text(
+                    "ALTER TABLE cameras ADD COLUMN IF NOT EXISTS "
+                    "people_zone_config TEXT DEFAULT '{}'"
+                )
+            )
+            self.pg.session.commit()
+        except SQLAlchemyError as exc:
+            self._rollback()
+            log.warning(f"people zone columns migration: {exc}")
 
     def _ensure_department_column(self) -> None:
         try:
@@ -243,6 +267,67 @@ class CameraStore:
             camera_id, RoiUpdate(enabled=False, polygons=[])
         )
 
+    def _parse_people_zone_config(self, row: CameraSqlSchema) -> PeopleZoneConfig:
+        raw = getattr(row, "people_zone_config", "{}") or "{}"
+        try:
+            data = json.loads(raw) if isinstance(raw, str) else raw
+            if not isinstance(data, dict):
+                data = {}
+        except (json.JSONDecodeError, TypeError):
+            data = {}
+        data["enabled"] = bool(getattr(row, "people_zone_enabled", False))
+        data["max_workers"] = min(3, max(1, int(data.get("max_workers") or 3)))
+        data.pop("line", None)
+        try:
+            return PeopleZoneConfig(**data)
+        except ValueError:
+            return PeopleZoneConfig(enabled=False, max_workers=3)
+
+    def get_people_zone(self, camera_id: int) -> Optional[PeopleZoneResponse]:
+        row = self.pg.session.get(CameraSqlSchema, camera_id)
+        if not row:
+            return None
+        cfg = self._parse_people_zone_config(row)
+        return PeopleZoneResponse(**cfg.model_dump())
+
+    def update_people_zone(
+        self, camera_id: int, payload: PeopleZoneConfig
+    ) -> Optional[PeopleZoneResponse]:
+        enabled = payload.enabled and len(payload.polygon) >= 3
+        cfg = PeopleZoneConfig(
+            enabled=enabled,
+            polygon=list(payload.polygon),
+            max_workers=3,
+        )
+        with self._lock:
+            try:
+                row = self.pg.session.get(CameraSqlSchema, camera_id)
+                if not row:
+                    return None
+                row.people_zone_enabled = enabled
+                row.people_zone_config = json.dumps(
+                    cfg.model_dump(exclude={"enabled"}), ensure_ascii=False
+                )
+                self.pg.session.add(row)
+                self.pg.session.commit()
+                self.pg.session.refresh(row)
+            except SQLAlchemyError:
+                self._rollback()
+                raise
+        return self.get_people_zone(camera_id)
+
+    def get_people_zone_runtime(
+        self, camera_id: int
+    ) -> tuple[bool, list[tuple[float, float]], int]:
+        row = self.pg.session.get(CameraSqlSchema, camera_id)
+        if not row:
+            return False, [], 3
+        cfg = self._parse_people_zone_config(row)
+        if not cfg.enabled or len(cfg.polygon) < 3:
+            return False, [], 3
+        polygon = [(p.x, p.y) for p in cfg.polygon]
+        return True, polygon, min(3, max(1, cfg.max_workers))
+
     def get_roi_polygons(self, camera_id: int) -> tuple[bool, list[RoiPolygonData]]:
         row = self.pg.session.get(CameraSqlSchema, camera_id)
         if not row:
@@ -300,6 +385,13 @@ class CameraStore:
 
     def update(self, camera_id: int, payload: CameraUpdateSchema) -> Optional[CameraSchema]:
         updates = payload.model_dump(exclude_unset=True)
+        if "department_id" in updates and updates["department_id"] is not None:
+            dept_id = int(updates["department_id"])
+            exists = self.pg.session.exec(
+                text("SELECT 1 FROM departments WHERE id = :id").bindparams(id=dept_id)
+            ).first()
+            if not exists:
+                raise ValueError("Отдел не найден")
         with self._lock:
             try:
                 row = self.pg.session.get(CameraSqlSchema, camera_id)

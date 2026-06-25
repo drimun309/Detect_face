@@ -9,7 +9,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlmodel import select
 
 from src.db.pg_db import PgSyncDb
-from src.schema.department_schema import DepartmentCreateSchema, DepartmentSchema
+from src.schema.department_schema import DepartmentCreateSchema, DepartmentSchema, DepartmentUpdateSchema
 from src.schema.department_sql_schema import DepartmentSqlSchema
 from src.utils.logger import get_logger
 
@@ -142,6 +142,30 @@ class DepartmentStore:
                 self._rollback()
                 raise
         return DepartmentSchema(id=row.id, name=row.name, camera_count=0)
+
+    def update(
+        self, department_id: int, payload: DepartmentUpdateSchema
+    ) -> DepartmentSchema | None:
+        name = payload.name.strip()
+        if not name:
+            raise ValueError("Название отдела не может быть пустым")
+        with self._lock:
+            try:
+                row = self.pg.session.get(DepartmentSqlSchema, department_id)
+                if not row:
+                    return None
+                row.name = name
+                self.pg.session.add(row)
+                self.pg.session.commit()
+                self.pg.session.refresh(row)
+            except IntegrityError:
+                self._rollback()
+                raise ValueError("Отдел с таким именем уже существует")
+            except SQLAlchemyError:
+                self._rollback()
+                raise
+        counts = self._camera_counts()
+        return self._to_schema(row, counts)
 
     def get(self, department_id: int) -> DepartmentSchema | None:
         with self._lock:

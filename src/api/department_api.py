@@ -6,6 +6,7 @@ from src.schema.department_schema import (
     DepartmentCreateSchema,
     DepartmentListSchema,
     DepartmentSchema,
+    DepartmentUpdateSchema,
 )
 from src.services.department_store import DepartmentStore
 
@@ -35,6 +36,18 @@ class DepartmentApi:
         @self.router.get("/departments/{department_id}", response_model=DepartmentSchema)
         async def get_department(department_id: int) -> DepartmentSchema:
             dept = self.store.get(department_id)
+            if not dept:
+                raise HTTPException(status_code=404, detail="Department not found")
+            return dept
+
+        @self.router.put("/departments/{department_id}", response_model=DepartmentSchema)
+        async def update_department(
+            department_id: int, payload: DepartmentUpdateSchema
+        ) -> DepartmentSchema:
+            try:
+                dept = self.store.update(department_id, payload)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
             if not dept:
                 raise HTTPException(status_code=404, detail="Department not found")
             return dept

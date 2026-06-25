@@ -10,14 +10,84 @@
   let dragState = null;
   let saveTimer = null;
   let roiEnabled = false;
+  let peopleZone = {
+    enabled: false,
+    polygon: [],
+    max_workers: 3,
+    current_workers: 0,
+    person_seconds: 0,
+  };
+  let isDrawingPeopleZone = false;
+  let peopleDraftPolygon = [];
+  let peopleZonePollTimer = null;
 
   const video = () => document.getElementById("stream-video");
   const canvas = () => document.getElementById("roi-canvas");
   const statusEl = () => document.getElementById("roi-status");
   const namesPanel = () => document.getElementById("roi-names-panel");
 
+  function stopPeopleZonePoll() {
+    if (peopleZonePollTimer) {
+      clearInterval(peopleZonePollTimer);
+      peopleZonePollTimer = null;
+    }
+  }
+
+  function startPeopleZonePoll() {
+    stopPeopleZonePoll();
+    if (!cameraId) return;
+    peopleZonePollTimer = setInterval(function () {
+      loadPeopleZone(cameraId, true).catch(function () {});
+    }, 5000);
+  }
+
   function defaultZoneName(index) {
     return t("roiZoneDefault", { n: index });
+  }
+
+  function peopleZoneConfigured() {
+    return !!(peopleZone.enabled && peopleZone.polygon.length >= 3);
+  }
+
+  function formatShiftPersonTime(sec) {
+    const total = Math.max(0, Math.floor(Number(sec) || 0));
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const s = total % 60;
+    return h + ":" + String(m).padStart(2, "0") + ":" + String(s).padStart(2, "0");
+  }
+
+  function updatePeopleZoneStats() {
+    const el = document.getElementById("people-zone-stats");
+    if (!el) return;
+    if (!peopleZoneConfigured()) {
+      el.classList.add("hidden");
+      el.textContent = "";
+      return;
+    }
+    el.classList.remove("hidden");
+    el.textContent = t("peopleZoneStats", {
+      n: peopleZone.current_workers || 0,
+      time: formatShiftPersonTime(peopleZone.person_seconds),
+    });
+  }
+
+  function updatePeopleZoneBtn() {
+    const peopleBtn = document.getElementById("people-zone-btn");
+    if (!peopleBtn) return;
+    const active = isDrawingPeopleZone || peopleZoneConfigured();
+    peopleBtn.classList.toggle("btn-primary", active);
+    peopleBtn.classList.toggle("btn-secondary", !active);
+    peopleBtn.title = peopleZoneConfigured()
+      ? t("peopleZoneActive", { n: peopleZone.current_workers || 0 })
+      : t("peopleZoneNotConfigured");
+  }
+
+  function refreshPeopleZoneOverlay() {
+    updatePeopleZoneBtn();
+    updatePeopleZoneStats();
+    if (updateCanvasVisibility()) layoutCanvas();
+    else draw();
   }
 
   function zoneLabel(poly, polyIdx) {
@@ -35,6 +105,12 @@
         return { x: p.x, y: p.y };
       }),
     };
+  }
+
+  function normalizePointList(points) {
+    return (points || []).map(function (p) {
+      return { x: p.x, y: p.y };
+    });
   }
 
   function getVideoRect() {
@@ -160,6 +236,17 @@
     if (currentPoints.length) {
       drawPoly(currentPoints, "#ffeb3b", null, null);
     }
+
+    function drawPeoplePolygon(points) {
+      if (!points || points.length < 2) return;
+      drawPoly(points, "#ff4dff", "rgba(255, 77, 255, 0.12)", null);
+    }
+
+    const peoplePoly =
+      isDrawingPeopleZone && peopleDraftPolygon.length
+        ? peopleDraftPolygon
+        : peopleZone.polygon;
+    drawPeoplePolygon(peoplePoly);
   }
 
   function renderNamesPanel() {
@@ -273,6 +360,66 @@
     draw();
   }
 
+  async function loadPeopleZone(id, silent) {
+    const res = await fetch(API + "/cameras/" + id + "/people-zone");
+    if (!res.ok) return;
+    const data = await res.json();
+    if (isDrawingPeopleZone) {
+      peopleZone.current_workers = data.current_workers || 0;
+      peopleZone.person_seconds = data.person_seconds || 0;
+      if (!silent) updateStatus(roiEnabled);
+      updatePeopleZoneBtn();
+      return;
+    }
+    peopleZone = {
+      enabled: !!data.enabled,
+      polygon: normalizePointList(data.polygon),
+      max_workers: 3,
+      current_workers: data.current_workers || 0,
+      person_seconds: data.person_seconds || 0,
+    };
+    updateStatus(roiEnabled);
+    refreshPeopleZoneOverlay();
+  }
+
+  async function savePeopleZone(enabled) {
+    if (!cameraId) return false;
+    if (enabled && peopleZone.polygon.length < 3) {
+      alert(t("peopleZoneIncomplete"));
+      return false;
+    }
+    const body = {
+      enabled: !!enabled,
+      polygon: peopleZone.polygon,
+      max_workers: 3,
+    };
+    const res = await fetch(API + "/cameras/" + cameraId + "/people-zone", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      let err = await res.text();
+      try {
+        const parsed = JSON.parse(err);
+        err = parsed.detail || err;
+      } catch (_) {}
+      alert(err);
+      return false;
+    }
+    const data = await res.json();
+    peopleZone = {
+      enabled: !!data.enabled,
+      polygon: normalizePointList(data.polygon),
+      max_workers: 3,
+      current_workers: data.current_workers || 0,
+      person_seconds: data.person_seconds || 0,
+    };
+    updateStatus(roiEnabled);
+    refreshPeopleZoneOverlay();
+    return true;
+  }
+
   async function saveRoi(enabled) {
     if (!cameraId) return;
     const polygons = completedPolygons.map(function (p, idx) {
@@ -305,44 +452,149 @@
     const el = statusEl();
     if (!el) return;
     const n = completedPolygons.length;
-    if (enabled && n > 0) {
-      el.textContent = t("roiActive") + " (" + n + ")";
+    if (isDrawingPeopleZone) {
+      el.textContent = t("peopleZoneDrawing");
       el.className = "roi-status active";
-    } else if (isSelecting) {
+      return;
+    }
+    if (isSelecting) {
       el.textContent = t("roiSelecting");
       el.className = "roi-status";
+      return;
+    }
+
+    const parts = [];
+    if (enabled && n > 0) {
+      parts.push(t("roiActive") + " (" + n + ")");
+    } else if (cameraId) {
+      parts.push(t("roiOff"));
+    }
+    if (cameraId) {
+      if (peopleZoneConfigured()) {
+        parts.push(
+          t("peopleZoneActive", { n: peopleZone.current_workers || 0 }) +
+            " · " +
+            t("peopleZoneShiftHours", {
+              time: formatShiftPersonTime(peopleZone.person_seconds),
+            })
+        );
+      } else {
+        parts.push(t("peopleZoneNotConfigured"));
+      }
+    }
+    if (parts.length) {
+      el.textContent = parts.join(" · ");
+      el.className =
+        "roi-status" + (enabled && n > 0 || peopleZoneConfigured() ? " active" : "");
     } else {
       el.textContent = t("roiOff");
       el.className = "roi-status";
     }
   }
 
+  function updateCanvasVisibility() {
+    const c = canvas();
+    if (!c) return false;
+    const visible = isSelecting || isDrawingPeopleZone || peopleZoneConfigured();
+    c.classList.toggle("hidden", !visible);
+    c.style.pointerEvents = isSelecting || isDrawingPeopleZone ? "auto" : "none";
+    return visible;
+  }
+
   function setSelecting(on) {
     isSelecting = on;
     dragState = null;
-    const c = canvas();
+    if (on) isDrawingPeopleZone = false;
     const editBtn = document.getElementById("roi-edit-btn");
-    if (c) c.classList.toggle("hidden", !on);
+    const visible = updateCanvasVisibility();
     if (editBtn) editBtn.classList.toggle("btn-primary", on);
-    if (on) layoutCanvas();
+    if (visible) layoutCanvas();
     else draw();
     renderNamesPanel();
     updateStatus(roiEnabled && completedPolygons.length > 0);
   }
 
+  function setPeopleZoneDrawing(on) {
+    isDrawingPeopleZone = on;
+    if (on) {
+      isSelecting = false;
+      dragState = null;
+      peopleDraftPolygon = [];
+    }
+    const editBtn = document.getElementById("roi-edit-btn");
+    const visible = updateCanvasVisibility();
+    if (editBtn) editBtn.classList.toggle("btn-primary", isSelecting);
+    updatePeopleZoneBtn();
+    if (visible) layoutCanvas();
+    else draw();
+    updateStatus(roiEnabled);
+  }
+
   window.DF_setStreamCameraId = function (id) {
+    const prevId = cameraId;
+    const sameCamera = id && prevId === id;
     cameraId = id;
-    completedPolygons = [];
-    currentPoints = [];
-    roiEnabled = false;
-    setSelecting(false);
-    if (id) loadRoi(id).catch(function () {});
-    else renderNamesPanel();
+    if (!id) {
+      stopPeopleZonePoll();
+      completedPolygons = [];
+      currentPoints = [];
+      peopleZone = {
+        enabled: false,
+        polygon: [],
+        max_workers: 3,
+        current_workers: 0,
+        person_seconds: 0,
+      };
+      isDrawingPeopleZone = false;
+      peopleDraftPolygon = [];
+      roiEnabled = false;
+      updateCanvasVisibility();
+      updatePeopleZoneBtn();
+      setSelecting(false);
+      renderNamesPanel();
+      return;
+    }
+    if (!sameCamera) {
+      completedPolygons = [];
+      currentPoints = [];
+      peopleZone = {
+        enabled: false,
+        polygon: [],
+        max_workers: 3,
+        current_workers: 0,
+        person_seconds: 0,
+      };
+      isDrawingPeopleZone = false;
+      peopleDraftPolygon = [];
+      roiEnabled = false;
+      updateCanvasVisibility();
+      setSelecting(false);
+    }
+    loadRoi(id).catch(function () {});
+    loadPeopleZone(id).catch(function () {});
+    startPeopleZonePoll();
+  };
+
+  window.DF_onStreamVideoReady = function () {
+    if (!cameraId) return;
+    setTimeout(function () {
+      refreshPeopleZoneOverlay();
+    }, 80);
+    loadPeopleZone(cameraId, true)
+      .then(function () {
+        updateStatus(roiEnabled);
+        refreshPeopleZoneOverlay();
+      })
+      .catch(function () {
+        refreshPeopleZoneOverlay();
+      });
   };
 
   window.DF_initRoi = function () {
     const editBtn = document.getElementById("roi-edit-btn");
     const clearBtn = document.getElementById("roi-clear-btn");
+    const peopleBtn = document.getElementById("people-zone-btn");
+    const peopleClearBtn = document.getElementById("people-zone-clear-btn");
     const c = canvas();
     if (!editBtn || !c) return;
 
@@ -372,14 +624,62 @@
         });
     });
 
+    if (peopleBtn) {
+      peopleBtn.addEventListener("click", function () {
+        if (!cameraId) {
+          alert(t("roiNeedStream"));
+          return;
+        }
+        if (isDrawingPeopleZone) {
+          setPeopleZoneDrawing(false);
+          return;
+        }
+        setPeopleZoneDrawing(true);
+      });
+    }
+
+    if (peopleClearBtn) {
+      peopleClearBtn.addEventListener("click", function () {
+        if (!cameraId) return;
+        if (!confirm(t("peopleZoneClearConfirm"))) return;
+        peopleZone = {
+          enabled: false,
+          polygon: [],
+          max_workers: 3,
+          current_workers: 0,
+        };
+        peopleDraftPolygon = [];
+        setPeopleZoneDrawing(false);
+        savePeopleZone(false);
+      });
+    }
+
     c.addEventListener("mousedown", function (e) {
-      if (!isSelecting) return;
+      if (!isSelecting && !isDrawingPeopleZone) return;
       e.preventDefault();
       const rect = c.getBoundingClientRect();
       const cx = e.clientX - rect.left;
       const cy = e.clientY - rect.top;
       const pt = normFromCanvas(cx, cy);
       if (!pt) return;
+      if (isDrawingPeopleZone) {
+        if (e.button === 2) {
+          if (peopleDraftPolygon.length >= 3) {
+            peopleZone.polygon = peopleDraftPolygon.slice();
+            peopleDraftPolygon = [];
+            peopleZone.enabled = true;
+            savePeopleZone(true).then(function (ok) {
+              if (ok) setPeopleZoneDrawing(false);
+            });
+          }
+          return;
+        }
+        if (e.button === 0) {
+          peopleDraftPolygon.push(pt);
+          draw();
+        }
+        return;
+      }
       if (e.button === 2) {
         if (currentPoints.length >= 3) {
           completedPolygons.push({
@@ -431,17 +731,20 @@
     });
 
     c.addEventListener("contextmenu", function (e) {
-      if (isSelecting) e.preventDefault();
+      if (isSelecting || isDrawingPeopleZone) e.preventDefault();
     });
 
     window.addEventListener("resize", function () {
-      if (isSelecting) layoutCanvas();
+      if (isSelecting || isDrawingPeopleZone || peopleZoneConfigured()) layoutCanvas();
     });
 
     const v = video();
     if (v) {
       v.addEventListener("loadedmetadata", function () {
-        if (isSelecting) layoutCanvas();
+        refreshPeopleZoneOverlay();
+      });
+      v.addEventListener("loadeddata", function () {
+        refreshPeopleZoneOverlay();
       });
     }
   };

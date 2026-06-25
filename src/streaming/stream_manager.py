@@ -19,6 +19,7 @@ from src.streaming.face_annotated_stream import (
     MAX_STREAM_HEIGHT,
     MAX_STREAM_WIDTH,
 )
+from src.services.people_counter_store import PeopleCounterStore
 from src.utils.logger import get_logger
 from src.utils.roi_helpers import RoiPolygonData, polygons_points
 from src.utils.rtsp import build_go2rtc_rtsp_url, build_rtsp_url
@@ -59,6 +60,7 @@ class FaceStreamManager:
         self.db.setup()
         self.face_store = init_face_embedding_store(self.db)
         self.roi_timer_store = RoiTimerStore(self.db)
+        self.people_counter_store = PeopleCounterStore(self.db)
         log.info(f"Face DB ready: {self.face_store.count} embedding(s) loaded")
 
     def _create_person_engine(self, model_id: str):
@@ -143,6 +145,15 @@ class FaceStreamManager:
         active_polygons = roi_defs if roi_enabled else []
         roi_keys = self.roi_timer_store.sync_camera_rois(camera.id, active_polygons)
         roi_points = polygons_points(active_polygons)
+        people_enabled, people_polygon, people_max_workers = (
+            False,
+            [],
+            3,
+        )
+        if self.camera_store:
+            people_enabled, people_polygon, people_max_workers = (
+                self.camera_store.get_people_zone_runtime(camera.id)
+            )
         direct_rtsp = build_rtsp_url(camera)
         go2rtc_rtsp = (
             build_go2rtc_rtsp_url(camera, self.cfg.GO2RTC_RTSP_URL)
@@ -173,6 +184,28 @@ class FaceStreamManager:
             roi_polygons=roi_points,
             roi_keys=roi_keys,
             max_quality=max_q,
+            people_zone_enabled=people_enabled,
+            people_zone_polygon=people_polygon,
+            people_zone_max_workers=people_max_workers,
+        )
+
+    def _apply_camera_config_to_streamer(
+        self, camera_id: int, streamer: FaceAnnotatedStreamer
+    ) -> None:
+        """Подтянуть ROI и общую зону из БД в уже запущенный стример."""
+        if not self.camera_store:
+            return
+        roi_enabled, roi_defs = self.camera_store.get_roi_polygons(camera_id)
+        active_polygons = roi_defs if roi_enabled else []
+        roi_keys = self.roi_timer_store.sync_camera_rois(camera_id, active_polygons)
+        streamer.update_roi_polygons(
+            roi_enabled, polygons_points(active_polygons), roi_keys
+        )
+        people_enabled, people_polygon, people_max_workers = (
+            self.camera_store.get_people_zone_runtime(camera_id)
+        )
+        streamer.update_people_zone(
+            people_enabled, people_polygon, people_max_workers
         )
 
     def update_roi_polygons(
@@ -189,6 +222,17 @@ class FaceStreamManager:
                 enabled, polygons_points(active_polygons), roi_keys
             )
 
+    def update_people_zone(
+        self,
+        camera_id: int,
+        enabled: bool,
+        polygon: list[tuple[float, float]],
+        max_workers: int = 3,
+    ) -> None:
+        streamer = self.streamers.get(camera_id)
+        if streamer:
+            streamer.update_people_zone(enabled, polygon, max_workers)
+
     def delete_roi_timers(self, camera_id: int) -> None:
         self.roi_timer_store.delete_camera(camera_id)
 
@@ -200,7 +244,9 @@ class FaceStreamManager:
             return False
 
         with self._lock:
-            if camera.id in self.streamers:
+            existing = self.streamers.get(camera.id)
+            if existing:
+                self._apply_camera_config_to_streamer(camera.id, existing)
                 return True
             if len(self.streamers) >= MAX_STREAMERS:
                 log.error(f"Max streamers ({MAX_STREAMERS}) reached")
@@ -212,6 +258,7 @@ class FaceStreamManager:
                 self.face_store,
                 person_engine=self.person_engine,
                 roi_timer_store=self.roi_timer_store,
+                people_counter_store=self.people_counter_store,
                 roi_switch_seconds=self.cfg.ROI_TIMER_SWITCH_SEC,
                 roi_reset_grace_seconds=self.cfg.ROI_TIMER_RESET_GRACE_SEC,
             )
@@ -294,6 +341,12 @@ class FaceStreamManager:
                     "stream_running": metrics is not None,
                     "faces_count": metrics.get("faces_count", 0) if metrics else 0,
                     "workers_count": metrics.get("workers_count", 0) if metrics else 0,
+                    "people_zone_workers": (
+                        metrics.get("people_zone_workers", 0) if metrics else 0
+                    ),
+                    "people_zone_person_seconds": (
+                        metrics.get("people_zone_person_seconds", 0.0) if metrics else 0.0
+                    ),
                     "infer_fps": metrics.get("infer_fps", 0.0) if metrics else 0.0,
                     "encode_fps": metrics.get("encode_fps", 0.0) if metrics else 0.0,
                     "errors": metrics.get("errors", 0) if metrics else 0,

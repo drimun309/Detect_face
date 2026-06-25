@@ -7,6 +7,10 @@ class DepartmentCreateSchema(BaseModel):
     name: str = Field(..., min_length=1, max_length=128)
 
 
+class DepartmentUpdateSchema(BaseModel):
+    name: str = Field(..., min_length=1, max_length=128)
+
+
 class DepartmentSchema(BaseModel):
     id: int
     name: str

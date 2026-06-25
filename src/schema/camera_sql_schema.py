@@ -19,4 +19,6 @@ class CameraSqlSchema(SQLModel, table=True):
     enabled: bool = Field(default=True)
     roi_enabled: bool = Field(default=False)
     rois: str = Field(default="[]")
+    people_zone_enabled: bool = Field(default=False)
+    people_zone_config: str = Field(default="{}")
     department_id: Optional[int] = Field(default=None, foreign_key="departments.id")

@@ -19,6 +19,7 @@ from src.services.face_embedding_store import FaceEmbeddingStore
 from src.utils.face_draw import (
     count_workers,
     draw_detections,
+    draw_people_zone_badge,
     draw_roi_polygons,
     draw_worker_count_badge,
 )
@@ -30,6 +31,7 @@ from src.utils.roi_helpers import (
 from src.utils.logger import get_logger
 
 if TYPE_CHECKING:
+    from src.services.people_counter_store import PeopleCounterStore
     from src.services.roi_timer_store import RoiTimerStore
 
 log = get_logger()
@@ -58,6 +60,9 @@ class FaceStreamerConfig:
     roi_polygons: list[list[tuple[float, float]]] = field(default_factory=list)
     roi_keys: list[str] = field(default_factory=list)
     max_quality: bool = False
+    people_zone_enabled: bool = False
+    people_zone_polygon: list[tuple[float, float]] = field(default_factory=list)
+    people_zone_max_workers: int = 3
 
 
 class FaceAnnotatedStreamer:
@@ -70,6 +75,7 @@ class FaceAnnotatedStreamer:
         face_store: FaceEmbeddingStore,
         person_engine: PersonDetector | None = None,
         roi_timer_store: "RoiTimerStore | None" = None,
+        people_counter_store: "PeopleCounterStore | None" = None,
         roi_switch_seconds: float = 60.0,
         roi_reset_grace_seconds: float = 7.0,
     ) -> None:
@@ -78,6 +84,7 @@ class FaceAnnotatedStreamer:
         self.face_store = face_store
         self.person_engine = person_engine
         self.roi_timer_store = roi_timer_store
+        self.people_counter_store = people_counter_store
         self.roi_switch_seconds = roi_switch_seconds
         self.roi_reset_grace_seconds = roi_reset_grace_seconds
 
@@ -111,6 +118,8 @@ class FaceAnnotatedStreamer:
         self._last_infer_ts = time.time()
         self._last_encode_ts = time.time()
         self._source_size: tuple[int, int] | None = None
+        self._people_tracks: dict[int, tuple[float, float, float]] = {}
+        self._next_people_track_id = 1
 
     def _safe_url(self, url: str | None = None) -> str:
         url = url or self.config.rtsp_input_url
@@ -194,6 +203,12 @@ class FaceAnnotatedStreamer:
             width=frame_bgr.shape[1],
             height=frame_bgr.shape[0],
         )
+        self._update_people_counter(
+            boxes=boxes,
+            categories=categories,
+            width=frame_bgr.shape[1],
+            height=frame_bgr.shape[0],
+        )
         boxes, scores, categories, names, distances = self._filter_by_roi(
             boxes,
             scores,
@@ -210,6 +225,73 @@ class FaceAnnotatedStreamer:
         self._last_distances = distances
         self.metrics["workers_count"] = count_workers(boxes, categories)
         self.metrics["faces_count"] = self.metrics["workers_count"]
+
+    def _people_zone_track_centers(
+        self,
+        boxes: list[list[int]],
+        categories: list[str],
+        width: int,
+        height: int,
+    ) -> list[tuple[float, float]]:
+        if width <= 0 or height <= 0:
+            return []
+        polygon = self.config.people_zone_polygon
+        if len(polygon) < 3:
+            return []
+        cats = [(c or "").lower() for c in categories]
+        if any(c == "person" for c in cats):
+            targets = {"person"}
+        elif any(c == "head" for c in cats):
+            targets = {"head"}
+        else:
+            targets = {"face"}
+        centers: list[tuple[float, float]] = []
+        for box, cat in zip(boxes, cats):
+            if cat not in targets:
+                continue
+            cx = ((box[0] + box[2]) / 2.0) / width
+            cy = ((box[1] + box[3]) / 2.0) / height
+            point = (cx, cy)
+            if point_in_polygon(point, polygon):
+                centers.append(point)
+        return centers
+
+    def _worker_centers(
+        self,
+        boxes: list[list[int]],
+        categories: list[str],
+        width: int,
+        height: int,
+    ) -> list[tuple[float, float]]:
+        return self._people_zone_track_centers(boxes, categories, width, height)
+
+    def _update_people_counter(
+        self,
+        boxes: list[list[int]],
+        categories: list[str],
+        width: int,
+        height: int,
+    ) -> None:
+        if (
+            self.people_counter_store is None
+            or not self.config.people_zone_enabled
+            or len(self.config.people_zone_polygon) < 3
+        ):
+            self._people_tracks = {}
+            return
+
+        centers = self._people_zone_track_centers(boxes, categories, width, height)
+        max_workers = min(3, max(1, int(self.config.people_zone_max_workers or 3)))
+        inside_count = min(max_workers, len(centers))
+
+        state = self.people_counter_store.tick(
+            camera_id=self.config.camera_id,
+            target_workers=inside_count,
+            max_workers=max_workers,
+        )
+        self._people_tracks = {}
+        self.metrics["people_zone_workers"] = state.current_workers
+        self.metrics["people_zone_person_seconds"] = state.person_seconds
 
     def _filter_by_roi(
         self,
@@ -318,20 +400,45 @@ class FaceAnnotatedStreamer:
         self._last_distances = []
         self._roi_labels = []
 
+    def update_people_zone(
+        self,
+        enabled: bool,
+        polygon: list[tuple[float, float]],
+        max_workers: int = 3,
+    ) -> None:
+        self.config.people_zone_enabled = enabled and len(polygon) >= 3
+        self.config.people_zone_polygon = list(polygon) if len(polygon) >= 3 else []
+        self.config.people_zone_max_workers = min(3, max(1, int(max_workers or 3)))
+        self._people_tracks = {}
+
     def _annotate(self, frame_bgr: np.ndarray) -> np.ndarray:
         out = frame_bgr
+        if self.config.people_zone_enabled and self.config.people_zone_polygon:
+            out = draw_roi_polygons(
+                out,
+                [self.config.people_zone_polygon],
+                color=(255, 0, 255),
+            )
         if self.config.roi_enabled and self.config.roi_polygons:
             out = draw_roi_polygons(out, self.config.roi_polygons, labels=self._roi_labels)
+        annotated = draw_detections(
+            out,
+            self._last_boxes,
+            self._last_scores,
+            self._last_categories,
+            self._last_names,
+            self._last_distances,
+            show_unknown_distance=self.config.show_unknown_distance,
+        )
+        if self.config.people_zone_enabled:
+            annotated = draw_people_zone_badge(
+                annotated,
+                int(self.metrics.get("people_zone_workers", 0)),
+                float(self.metrics.get("people_zone_person_seconds", 0.0)),
+                self.config.people_zone_max_workers,
+            )
         return draw_worker_count_badge(
-            draw_detections(
-                out,
-                self._last_boxes,
-                self._last_scores,
-                self._last_categories,
-                self._last_names,
-                self._last_distances,
-                show_unknown_distance=self.config.show_unknown_distance,
-            ),
+            annotated,
             int(self.metrics.get("workers_count", 0)),
         )
 
