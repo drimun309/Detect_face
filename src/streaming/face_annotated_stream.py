@@ -32,6 +32,7 @@ from src.utils.logger import get_logger
 
 if TYPE_CHECKING:
     from src.services.people_counter_store import PeopleCounterStore
+    from src.services.roi_people_counter_store import RoiPeopleCounterStore
     from src.services.roi_timer_store import RoiTimerStore
 
 log = get_logger()
@@ -76,6 +77,7 @@ class FaceAnnotatedStreamer:
         person_engine: PersonDetector | None = None,
         roi_timer_store: "RoiTimerStore | None" = None,
         people_counter_store: "PeopleCounterStore | None" = None,
+        roi_people_counter_store: "RoiPeopleCounterStore | None" = None,
         roi_switch_seconds: float = 60.0,
         roi_reset_grace_seconds: float = 7.0,
     ) -> None:
@@ -85,6 +87,7 @@ class FaceAnnotatedStreamer:
         self.person_engine = person_engine
         self.roi_timer_store = roi_timer_store
         self.people_counter_store = people_counter_store
+        self.roi_people_counter_store = roi_people_counter_store
         self.roi_switch_seconds = roi_switch_seconds
         self.roi_reset_grace_seconds = roi_reset_grace_seconds
 
@@ -324,6 +327,28 @@ class FaceAnnotatedStreamer:
                 fd.append(dist)
         return fb, fs, fc, fn, fd
 
+    def _workers_per_roi(
+        self,
+        boxes: list[list[int]],
+        categories: list[str],
+        width: int,
+        height: int,
+    ) -> list[int]:
+        """Число детекций person/head внутри каждого ROI (макс. 2)."""
+        n = len(self.config.roi_polygons)
+        counts = [0] * n
+        if width <= 0 or height <= 0 or n == 0:
+            return counts
+        for box, category in zip(boxes, categories):
+            if (category or "").lower() not in ("person", "head"):
+                continue
+            cx = ((box[0] + box[2]) / 2.0) / width
+            cy = ((box[1] + box[3]) / 2.0) / height
+            idx = assign_detection_to_roi((cx, cy), self.config.roi_polygons)
+            if idx is not None:
+                counts[idx] += 1
+        return [min(2, c) for c in counts]
+
     def _update_roi_timers(
         self,
         boxes: list[list[int]],
@@ -359,15 +384,19 @@ class FaceAnnotatedStreamer:
             self._roi_labels = []
             return
 
-        presence = [False] * len(self.config.roi_polygons)
-        for box, _score, category in zip(boxes, scores, categories):
-            if (category or "").lower() not in ("person", "head"):
-                continue
-            cx = ((box[0] + box[2]) / 2.0) / width
-            cy = ((box[1] + box[3]) / 2.0) / height
-            idx = assign_detection_to_roi((cx, cy), self.config.roi_polygons)
-            if idx is not None:
-                presence[idx] = True
+        worker_counts = self._workers_per_roi(boxes, categories, width, height)
+        presence = [c > 0 for c in worker_counts]
+
+        if self.roi_people_counter_store is not None:
+            self.roi_people_counter_store.sync_camera_rois(
+                self.config.camera_id, self.config.roi_keys
+            )
+            for roi_key, count in zip(self.config.roi_keys, worker_counts):
+                self.roi_people_counter_store.tick(
+                    camera_id=self.config.camera_id,
+                    roi_key=roi_key,
+                    target_workers=count,
+                )
 
         self.roi_timer_store.tick(
             camera_id=self.config.camera_id,

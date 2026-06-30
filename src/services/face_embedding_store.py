@@ -1,6 +1,5 @@
 """Кэш эмбеддингов лиц из PostgreSQL для сравнения на потоке."""
 
-import threading
 import time
 from dataclasses import dataclass
 
@@ -41,7 +40,7 @@ class FaceEmbeddingStore:
     def __init__(self, db: PgSyncDb, refresh_interval_sec: float = 30.0) -> None:
         self.db = db
         self.refresh_interval_sec = refresh_interval_sec
-        self._lock = threading.Lock()
+        self._lock = db.lock
         self._faces: list[KnownFace] = []
         self._loaded_at = 0.0
 
@@ -51,16 +50,15 @@ class FaceEmbeddingStore:
 
     def reload(self) -> int:
         """Полная перезагрузка из PostgreSQL."""
-        rows = self.db.session.exec(select(FacesFrSqlSchema)).all()
-        loaded: list[KnownFace] = []
-        for row in rows:
-            emb = _to_numpy(row.embedding)
-            if emb.size == 0:
-                log.warning(f"Skip face id={row.id} name={row.name}: empty embedding")
-                continue
-            loaded.append(KnownFace(id=row.id, name=row.name, embedding=emb))
-
         with self._lock:
+            rows = self.db.session.exec(select(FacesFrSqlSchema)).all()
+            loaded: list[KnownFace] = []
+            for row in rows:
+                emb = _to_numpy(row.embedding)
+                if emb.size == 0:
+                    log.warning(f"Skip face id={row.id} name={row.name}: empty embedding")
+                    continue
+                loaded.append(KnownFace(id=row.id, name=row.name, embedding=emb))
             self._faces = loaded
             self._loaded_at = time.time()
 
@@ -135,12 +133,13 @@ class FaceEmbeddingStore:
         distance_threshold: float,
     ) -> tuple[str | None, float | None]:
         """Один запрос в БД через pgvector (как в FrApi)."""
-        rows = self.db.session.exec(
-            select(FacesFrSqlSchema)
-            .filter(FacesFrSqlSchema.embedding.cosine_distance(embedding) < distance_threshold)
-            .order_by(FacesFrSqlSchema.embedding.cosine_distance(embedding))
-            .limit(1)
-        ).all()
+        with self.db.lock:
+            rows = self.db.session.exec(
+                select(FacesFrSqlSchema)
+                .filter(FacesFrSqlSchema.embedding.cosine_distance(embedding) < distance_threshold)
+                .order_by(FacesFrSqlSchema.embedding.cosine_distance(embedding))
+                .limit(1)
+            ).all()
         if not rows:
             return None, None
         face = rows[0]

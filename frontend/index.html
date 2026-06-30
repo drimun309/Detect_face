@@ -178,6 +178,7 @@
                       <option value="yolov8s">YOLOv8s (COCO)</option>
                       <option value="crowdhuman_yolov5m">YOLOv5 CrowdHuman</option>
                       <option value="yolo26n">YOLO26n ONNX</option>
+                      <option value="package_label_stage2">Пакеты + этикетки (YOLO seg)</option>
                     </select>
                     <p class="help-text" data-i18n="personDetModelHelp"></p>
                   </div>
@@ -422,12 +423,14 @@
                   <div class="form-group">
                     <label for="rec_quality" data-i18n="recQuality">Качество (разрешение записи)</label>
                     <select id="rec_quality" name="rec_quality" class="form-select">
-                      <option value="1280x720">1280×720</option>
+                      <option value="2560x1440" data-i18n="res1440">2560×1440 (2K)</option>
+                      <option value="1920x1080" data-i18n="res1080">1920×1080 (Full HD)</option>
+                      <option value="1280x720" data-i18n="res720">1280×720 (HD)</option>
                       <option value="960x540">960×540</option>
                       <option value="640x360">640×360</option>
                     </select>
                     <p class="help-text" data-i18n="recQualityHint">
-                      Меньше разрешение — меньше размер файлов.
+                      2K: поток с детекцией автоматически переключится в макс. качество.
                     </p>
                   </div>
                   <div class="form-group">
@@ -468,9 +471,9 @@
         <div id="tab-stats" class="tab-panel">
           <div class="page-wrap">
             <div class="page-header">
-              <h1 data-i18n="statsTitle">Статистика ROI</h1>
+              <h1 data-i18n="statsTitle">Аналитика</h1>
               <p class="help-text" data-i18n="statsHint">
-                Работа и простой по рабочим зонам из базы данных
+                Рабочие зоны или общая зона (чел·часы), смена 07:00–19:00
               </p>
             </div>
 
@@ -501,6 +504,10 @@
                 </div>
               </div>
               <div class="form-group">
+                <label data-i18n="statsMode">Тип аналитики</label>
+                <div id="stats-mode-chips" class="period-chips"></div>
+              </div>
+              <div class="form-group">
                 <label data-i18n="statsPeriod">Период</label>
                 <div id="stats-period-chips" class="period-chips"></div>
               </div>
@@ -513,7 +520,7 @@
               </div>
               <div class="table-wrap">
                 <table class="stats-table">
-                  <thead>
+                  <thead id="stats-table-head">
                     <tr>
                       <th data-i18n="date">Дата</th>
                       <th data-i18n="statsWork">Работа</th>
@@ -538,7 +545,7 @@
               </div>
               <div class="table-wrap stats-zones-wrap">
                 <table>
-                  <thead>
+                  <thead id="stats-detail-head">
                     <tr>
                       <th data-i18n="statsZone">Рабочая зона</th>
                       <th data-i18n="statsWork">Работа</th>
@@ -780,9 +787,9 @@
       </div>
     </div>
 
-    <script src="/roi.js?v=8" charset="UTF-8"></script>
+    <script src="/roi.js?v=9" charset="UTF-8"></script>
     <script src="/rec-timeline.js?v=8" charset="UTF-8"></script>
-    <script src="/stats.js?v=2" charset="UTF-8"></script>
+    <script src="/stats.js?v=5" charset="UTF-8"></script>
     <script src="/app.js?v=38" charset="UTF-8"></script>
   </body>
 </html>

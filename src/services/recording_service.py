@@ -156,6 +156,33 @@ class RecordingService:
                 return path
         return self._primary_camera_dir(camera_id, camera_name) / date / filename
 
+    @staticmethod
+    def _is_2k_recording(width: int, height: int) -> bool:
+        return width >= 2560 or height >= 1440
+
+    def _recording_scale_filter(self) -> str:
+        w = int(self.settings.record_width)
+        h = int(self.settings.record_height)
+        return (
+            f"scale={w}:{h}:force_original_aspect_ratio=decrease,"
+            f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:black"
+        )
+
+    def _ensure_stream_quality_for_recording(self, camera_id: int) -> None:
+        """Для 2K-записи поднять annotated-поток до нативного разрешения."""
+        if not self._is_2k_recording(
+            self.settings.record_width, self.settings.record_height
+        ):
+            return
+        try:
+            from src.streaming.stream_manager import get_stream_manager
+
+            mgr = get_stream_manager()
+            mgr.set_stream_max_quality(camera_id, True)
+            log.info(f"[cam {camera_id}] Max quality stream enabled for 2K recording")
+        except Exception as exc:
+            log.warning(f"[cam {camera_id}] Could not enable max quality for 2K: {exc}")
+
     def start_recording(
         self,
         camera_id: int,
@@ -178,13 +205,15 @@ class RecordingService:
             if camera_id in self._active_recordings:
                 return True  # Already recording
 
+        self._ensure_stream_quality_for_recording(camera_id)
+
         output_dir = self.get_output_path(camera_id, camera_name)
         segment_sec = int(self.settings.chunk_duration_min) * 60
         # сегменты будут называться по времени начала (strftime)
         output_pattern = str(output_dir / "%H%M%S.mp4")
 
         # ffmpeg: RTSP -> H264 mp4 segments
-        vf = f"scale={self.settings.record_width}:{self.settings.record_height}"
+        vf = self._recording_scale_filter()
         cmd = [
             "ffmpeg",
             "-hide_banner",
@@ -222,7 +251,10 @@ class RecordingService:
         ]
 
         try:
-            log.info(f"[cam {camera_id}] Starting recording segments -> {output_dir}")
+            log.info(
+                f"[cam {camera_id}] Starting recording segments -> {output_dir} "
+                f"({self.settings.record_width}x{self.settings.record_height})"
+            )
             process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.DEVNULL,

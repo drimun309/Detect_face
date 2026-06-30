@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from threading import Lock
 from typing import Optional
 
 from sqlalchemy import text
@@ -41,7 +40,7 @@ class CameraStore:
 
     def __init__(self, pg: PgSyncDb) -> None:
         self.pg = pg
-        self._lock = Lock()
+        self._lock = pg.lock
         self._ensure_roi_columns()
         self._ensure_people_zone_columns()
         self._ensure_department_column()

@@ -214,24 +214,6 @@
       const activeIdx =
         dragState && dragState.polyIndex === polyIdx ? dragState.pointIndex : null;
       drawPoly(poly.points, "#5ba8e0", "rgba(91, 168, 224, 0.18)", activeIdx);
-      if (poly.points.length >= 3) {
-        const cx =
-          poly.points.reduce(function (s, p) {
-            return s + p.x;
-          }, 0) / poly.points.length;
-        const cy =
-          poly.points.reduce(function (s, p) {
-            return s + p.y;
-          }, 0) / poly.points.length;
-        const lbl = zoneLabel(poly, polyIdx);
-        ctx.font = "bold 14px sans-serif";
-        ctx.fillStyle = "#ffffff";
-        ctx.strokeStyle = "#1b5e20";
-        ctx.lineWidth = 3;
-        const textX = cx * c.width - Math.min(20, lbl.length * 3);
-        ctx.strokeText(lbl, textX, cy * c.height - 8);
-        ctx.fillText(lbl, textX, cy * c.height - 8);
-      }
     });
     if (currentPoints.length) {
       drawPoly(currentPoints, "#ffeb3b", null, null);

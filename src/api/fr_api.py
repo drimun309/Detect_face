@@ -54,7 +54,8 @@ class FrApi(BaseApi):
         async def list_faces() -> List[ReadFacesFrSchema]:
             """List all faces."""
             log.log(21, f"Request to list all faces")
-            faces = self.pg.session.exec(select(FacesFrSqlSchema)).all()
+            with self.pg.lock:
+                faces = self.pg.session.exec(select(FacesFrSqlSchema)).all()
 
             log.log(21, f"Founds {len(faces)} faces")
 
@@ -74,7 +75,8 @@ class FrApi(BaseApi):
             log.log(21, f"Request to register a face with name: {name}")
 
             # check if name already exists
-            faces_db = self.pg.session.exec(select(FacesFrSqlSchema)).all()
+            with self.pg.lock:
+                faces_db = self.pg.session.exec(select(FacesFrSqlSchema)).all()
             for face_db in faces_db:
                 if face_db.name == name:
                     raise HTTPException(
@@ -105,16 +107,17 @@ class FrApi(BaseApi):
                 )
 
             # only iterate once
-            for embd in faces.embeddings:
-                face = FacesFrSqlSchema(
-                    name=name,
-                    embedding=embd,
-                    created_at=datetime.now(),
-                    updated_at=datetime.now(),
-                )
-                self.pg.session.add(face)
-                self.pg.session.commit()
-                self.pg.session.refresh(face)
+            with self.pg.lock:
+                for embd in faces.embeddings:
+                    face = FacesFrSqlSchema(
+                        name=name,
+                        embedding=embd,
+                        created_at=datetime.now(),
+                        updated_at=datetime.now(),
+                    )
+                    self.pg.session.add(face)
+                    self.pg.session.commit()
+                    self.pg.session.refresh(face)
 
             log.log(21, f"Face registered with id: {face.id}")
 
@@ -158,13 +161,14 @@ class FrApi(BaseApi):
             for box, embd in zip(faces.boxes, faces.embeddings):
                 # TODO: add more methods
                 if method == "cosine":
-                    responses = self.pg.session.exec(
-                        select(FacesFrSqlSchema)
-                        .filter(
-                            FacesFrSqlSchema.embedding.cosine_distance(embd) < distance
-                        )
-                        .limit(1)
-                    ).all()
+                    with self.pg.lock:
+                        responses = self.pg.session.exec(
+                            select(FacesFrSqlSchema)
+                            .filter(
+                                FacesFrSqlSchema.embedding.cosine_distance(embd) < distance
+                            )
+                            .limit(1)
+                        ).all()
                 else:
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
@@ -186,18 +190,19 @@ class FrApi(BaseApi):
             """Delete a face."""
             log.log(21, f"Request to delete face with id: {id}")
 
-            face = self.pg.session.exec(
-                select(FacesFrSqlSchema).filter(FacesFrSqlSchema.id == id)
-            ).first()
+            with self.pg.lock:
+                face = self.pg.session.exec(
+                    select(FacesFrSqlSchema).filter(FacesFrSqlSchema.id == id)
+                ).first()
 
-            if not face:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Face not found",
-                )
+                if not face:
+                    raise HTTPException(
+                        status_code=status.HTTP_404_NOT_FOUND,
+                        detail="Face not found",
+                    )
 
-            self.pg.session.delete(face)
-            self.pg.session.commit()
+                self.pg.session.delete(face)
+                self.pg.session.commit()
 
             log.log(21, f"Face deleted with id: {id}")
 

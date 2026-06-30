@@ -5,7 +5,6 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 from datetime import datetime
-from threading import Lock
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import text
@@ -40,7 +39,7 @@ class PeopleCounterStore:
 
     def __init__(self, pg: PgSyncDb) -> None:
         self.pg = pg
-        self._lock = Lock()
+        self._lock = pg.lock
         self._cache: dict[int, PeopleCounterState] = {}
         self._ensure_tables()
 
@@ -67,6 +66,24 @@ class PeopleCounterStore:
                         person_seconds DOUBLE PRECISION NOT NULL DEFAULT 0,
                         last_tick DOUBLE PRECISION NOT NULL DEFAULT 0,
                         updated_at DOUBLE PRECISION NOT NULL DEFAULT 0
+                    )
+                    """
+                )
+            )
+            self.pg.session.exec(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS people_zone_daily (
+                        camera_id INTEGER NOT NULL,
+                        day_date DATE NOT NULL,
+                        max_workers INTEGER NOT NULL DEFAULT 3,
+                        seconds_0_workers DOUBLE PRECISION NOT NULL DEFAULT 0,
+                        seconds_1_worker DOUBLE PRECISION NOT NULL DEFAULT 0,
+                        seconds_2_workers DOUBLE PRECISION NOT NULL DEFAULT 0,
+                        seconds_3_workers DOUBLE PRECISION NOT NULL DEFAULT 0,
+                        person_seconds DOUBLE PRECISION NOT NULL DEFAULT 0,
+                        updated_at DOUBLE PRECISION NOT NULL DEFAULT 0,
+                        PRIMARY KEY (camera_id, day_date)
                     )
                     """
                 )
@@ -194,10 +211,81 @@ class PeopleCounterStore:
             )
         )
 
+    def _shift_bounds_for_date(self, day_str: str) -> tuple[float, float]:
+        parts = day_str.split("-")
+        if len(parts) != 3:
+            return 0.0, 0.0
+        y, m, d = int(parts[0]), int(parts[1]), int(parts[2])
+        start = datetime(y, m, d, VIEW_START_HOUR, 0, 0, tzinfo=TZ)
+        end = datetime(y, m, d, VIEW_END_HOUR, 0, 0, tzinfo=TZ)
+        return start.timestamp(), end.timestamp()
+
+    def _flush_daily(self, state: PeopleCounterState) -> None:
+        self.pg.session.exec(
+            text(
+                """
+                INSERT INTO people_zone_daily (
+                    camera_id, day_date, max_workers,
+                    seconds_0_workers, seconds_1_worker, seconds_2_workers,
+                    seconds_3_workers, person_seconds, updated_at
+                )
+                VALUES (
+                    :camera_id, :day_date, :max_workers,
+                    :seconds_0_workers, :seconds_1_worker, :seconds_2_workers,
+                    :seconds_3_workers, :person_seconds, :updated_at
+                )
+                ON CONFLICT (camera_id, day_date) DO UPDATE SET
+                    max_workers = EXCLUDED.max_workers,
+                    seconds_0_workers = EXCLUDED.seconds_0_workers,
+                    seconds_1_worker = EXCLUDED.seconds_1_worker,
+                    seconds_2_workers = EXCLUDED.seconds_2_workers,
+                    seconds_3_workers = EXCLUDED.seconds_3_workers,
+                    person_seconds = EXCLUDED.person_seconds,
+                    updated_at = EXCLUDED.updated_at
+                """
+            ).bindparams(
+                camera_id=state.camera_id,
+                day_date=state.day_date,
+                max_workers=state.max_workers,
+                seconds_0_workers=state.seconds_0_workers,
+                seconds_1_worker=state.seconds_1_worker,
+                seconds_2_workers=state.seconds_2_workers,
+                seconds_3_workers=state.seconds_3_workers,
+                person_seconds=state.person_seconds,
+                updated_at=state.updated_at,
+            )
+        )
+
+    def _state_row_from_db(self, camera_id: int, day_str: str) -> dict | None:
+        row = self.pg.session.exec(
+            text(
+                """
+                SELECT max_workers, seconds_0_workers, seconds_1_worker,
+                       seconds_2_workers, seconds_3_workers, person_seconds
+                FROM people_zone_daily
+                WHERE camera_id = :camera_id AND day_date = :day_date
+                """
+            ).bindparams(camera_id=camera_id, day_date=day_str)
+        ).first()
+        if not row:
+            return None
+        return {
+            "max_workers": int(row[0] or 3),
+            "seconds_0_workers": float(row[1] or 0),
+            "seconds_1_worker": float(row[2] or 0),
+            "seconds_2_workers": float(row[3] or 0),
+            "seconds_3_workers": float(row[4] or 0),
+            "person_seconds": float(row[5] or 0),
+        }
+
     def _reset_day_if_needed(self, state: PeopleCounterState, ts: float) -> None:
         today = self._today(ts)
         if state.day_date == today:
             return
+        try:
+            self._flush_daily(state)
+        except SQLAlchemyError:
+            self._rollback()
         state.day_date = today
         state.seconds_0_workers = 0.0
         state.seconds_1_worker = 0.0
@@ -256,6 +344,7 @@ class PeopleCounterStore:
                 state.last_tick = ts
                 state.updated_at = ts
                 self._upsert_state(state)
+                self._flush_daily(state)
                 self.pg.session.commit()
             except SQLAlchemyError as exc:
                 self._rollback()
@@ -287,6 +376,7 @@ class PeopleCounterStore:
                 state.last_tick = ts
                 state.updated_at = ts
                 self._upsert_state(state)
+                self._flush_daily(state)
                 self.pg.session.commit()
             except SQLAlchemyError as exc:
                 self._rollback()
@@ -296,3 +386,167 @@ class PeopleCounterStore:
     def reset_camera(self, camera_id: int) -> None:
         with self._lock:
             self._cache.pop(camera_id, None)
+
+    def get_stat_dates(self, camera_id: int) -> list[str]:
+        with self._lock:
+            try:
+                rows = self.pg.session.exec(
+                    text(
+                        """
+                        SELECT DISTINCT day_date
+                        FROM people_zone_daily
+                        WHERE camera_id = :camera_id
+                        ORDER BY day_date
+                        """
+                    ).bindparams(camera_id=camera_id)
+                ).all()
+                return [str(row[0]) for row in rows]
+            except SQLAlchemyError as exc:
+                self._rollback()
+                log.warning(f"people zone stat dates query failed: {exc}")
+                return []
+
+    def get_stat_dates_meta(self, camera_id: int) -> dict:
+        return {
+            "camera_id": camera_id,
+            "dates": self.get_stat_dates(camera_id),
+            "server_today": self._today(time.time()),
+            "timezone": str(TZ),
+        }
+
+    def get_daily_stats_range(
+        self, camera_id: int, from_date: str, to_date: str
+    ) -> dict:
+        days_map: dict[str, dict] = {}
+        with self._lock:
+            try:
+                rows = self.pg.session.exec(
+                    text(
+                        """
+                        SELECT day_date, max_workers, seconds_0_workers,
+                               seconds_1_worker, seconds_2_workers,
+                               seconds_3_workers, person_seconds
+                        FROM people_zone_daily
+                        WHERE camera_id = :camera_id
+                          AND day_date BETWEEN :from_date AND :to_date
+                        ORDER BY day_date
+                        """
+                    ).bindparams(
+                        camera_id=camera_id,
+                        from_date=from_date,
+                        to_date=to_date,
+                    )
+                ).all()
+                for row in rows:
+                    day_str = str(row[0])
+                    days_map[day_str] = {
+                        "date": day_str,
+                        "max_workers": int(row[1] or 3),
+                        "seconds_0_workers": float(row[2] or 0),
+                        "seconds_1_worker": float(row[3] or 0),
+                        "seconds_2_workers": float(row[4] or 0),
+                        "seconds_3_workers": float(row[5] or 0),
+                        "person_seconds": float(row[6] or 0),
+                    }
+                live = self._live_counters_for_day(camera_id, time.time())
+                if live and from_date <= live["date"] <= to_date:
+                    days_map[live["date"]] = live
+            except SQLAlchemyError as exc:
+                self._rollback()
+                log.warning(f"people zone daily stats query failed: {exc}")
+
+        days = [days_map[k] for k in sorted(days_map.keys())]
+        return {
+            "camera_id": camera_id,
+            "from": from_date,
+            "to": to_date,
+            "timezone": str(TZ),
+            "server_today": self._today(time.time()),
+            "view_start_hour": VIEW_START_HOUR,
+            "view_end_hour": VIEW_END_HOUR,
+            "days": days,
+        }
+
+    def _live_counters_for_day(self, camera_id: int, ts: float) -> dict | None:
+        state = self._cache.get(camera_id)
+        if state is None:
+            state = self._load_state(camera_id, 3, ts)
+        self._reset_day_if_needed(state, ts)
+        self._accumulate(state, ts)
+        return {
+            "date": state.day_date,
+            "max_workers": state.max_workers,
+            "seconds_0_workers": state.seconds_0_workers,
+            "seconds_1_worker": state.seconds_1_worker,
+            "seconds_2_workers": state.seconds_2_workers,
+            "seconds_3_workers": state.seconds_3_workers,
+            "person_seconds": state.person_seconds,
+        }
+
+    def get_timeline(self, camera_id: int, date: str) -> dict:
+        range_start, range_end = self._shift_bounds_for_date(date)
+        with self._lock:
+            stats = self._state_row_from_db(camera_id, date)
+            if stats is None:
+                live = self._live_counters_for_day(camera_id, time.time())
+                if live and live["date"] == date:
+                    stats = {k: v for k, v in live.items() if k != "date"}
+            stats = stats or {
+                "max_workers": 3,
+                "seconds_0_workers": 0.0,
+                "seconds_1_worker": 0.0,
+                "seconds_2_workers": 0.0,
+                "seconds_3_workers": 0.0,
+                "person_seconds": 0.0,
+            }
+
+            segments: list[dict] = []
+            try:
+                rows = self.pg.session.exec(
+                    text(
+                        """
+                        SELECT ts, workers_after
+                        FROM people_zone_events
+                        WHERE camera_id = :camera_id
+                          AND ts >= :range_start AND ts < :range_end
+                        ORDER BY ts ASC, id ASC
+                        """
+                    ).bindparams(
+                        camera_id=camera_id,
+                        range_start=range_start,
+                        range_end=range_end,
+                    )
+                ).all()
+                workers = 0
+                cursor = range_start
+                for row in rows:
+                    ts = float(row[0])
+                    if ts > cursor:
+                        segments.append(
+                            {"start": cursor, "end": ts, "workers": workers}
+                        )
+                    workers = min(3, max(0, int(row[1] or 0)))
+                    cursor = max(cursor, ts)
+                if cursor < range_end:
+                    segments.append(
+                        {"start": cursor, "end": range_end, "workers": workers}
+                    )
+            except SQLAlchemyError as exc:
+                self._rollback()
+                log.warning(f"people zone timeline query failed: {exc}")
+                segments = [
+                    {"start": range_start, "end": range_end, "workers": 0}
+                ]
+
+        if not segments:
+            segments = [{"start": range_start, "end": range_end, "workers": 0}]
+
+        return {
+            "camera_id": camera_id,
+            "date": date,
+            "range_start": range_start,
+            "range_end": range_end,
+            "timezone": str(TZ),
+            "segments": segments,
+            **stats,
+        }

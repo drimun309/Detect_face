@@ -1,4 +1,4 @@
-﻿/** i18n: ru (default) / en */
+/** i18n: ru (default) / en */
 (function (global) {
   const STRINGS = {
     ru: {
@@ -8,8 +8,23 @@
       tabEnroll: "Регистрация лиц",
       tabRecordings: "Записи",
       tabStats: "Статистика",
-      statsTitle: "Статистика ROI",
-      statsHint: "Работа и простой по рабочим зонам (07:00–19:00, данные из БД)",
+      statsTitle: "Аналитика",
+      statsHint: "Рабочие зоны: работа/простой и чел·часы; общая зона: чел·часы, смена 07:00–19:00",
+      statsRoiSummary: "{days} дн. · 07:00–19:00 · работа {work} · простой {idle} · чел·часы {personHours}",
+      statsTimelineWorkIdle: "Работа и простой",
+      statsTimelineWorkers: "Занятость (чел·часы)",
+      statsMode: "Тип аналитики",
+      statsModeRoi: "Рабочие зоны",
+      statsModePeople: "Общая зона",
+      statsPersonHours: "Чел·часы",
+      statsWorkers0: "×0",
+      statsWorkers1: "×1",
+      statsWorkers2: "×2",
+      statsWorkers3: "×3",
+      statsPeopleZoneName: "Общая зона",
+      statsPeopleSummary: "{days} дн. · 07:00–19:00 · чел·часы {personHours}",
+      statsPeopleDayDetail: "Общая зона: {date}",
+      statsNoPeopleData: "Нет данных по общей зоне за период",
       statsFilters: "Фильтры",
       statsFrom: "С",
       statsTo: "По",
@@ -96,7 +111,7 @@
       detectionMode: "Режим детекции",
       personDetModel: "Модель детекции человека",
       personDetModelHelp:
-        "YOLOv8s — класс person (COCO). CrowdHuman — тело и голова. YOLO26n — лёгкая ONNX-модель.",
+        "YOLOv8s — класс person (COCO). CrowdHuman — тело и голова. YOLO26n — лёгкая ONNX. Пакеты — детекция package/label.",
       crowdhumanDetType: "CrowdHuman: классы",
       crowdhumanBoth: "Тело и голова",
       crowdhumanBody: "Только тело",
@@ -119,7 +134,7 @@
       recShiftEnd: "Конец смены",
       recAutoEnabled: "Авто-запись по смене",
       recQuality: "Качество (разрешение записи)",
-      recQualityHint: "Меньше разрешение — меньше размер файлов.",
+      recQualityHint: "2K: поток с детекцией автоматически переключается в макс. качество. Меньше разрешение — меньше файлы.",
       recCrf: "CRF (качество/размер)",
       recCrfHint: "Типично 24–32.",
       recordingsTitle: "Записи видео",
@@ -242,8 +257,23 @@
       tabEnroll: "Enroll faces",
       tabRecordings: "Recordings",
       tabStats: "Statistics",
-      statsTitle: "ROI statistics",
-      statsHint: "Work and idle per zone (07:00–19:00, from database)",
+      statsTitle: "Analytics",
+      statsHint: "Work zones: work/idle and person·hours; whole zone: person·hours, shift 07:00–19:00",
+      statsRoiSummary: "{days} days · 07:00–19:00 · work {work} · idle {idle} · person·hours {personHours}",
+      statsTimelineWorkIdle: "Work and idle",
+      statsTimelineWorkers: "Occupancy (person·hours)",
+      statsMode: "Analytics type",
+      statsModeRoi: "Work zones",
+      statsModePeople: "Whole zone",
+      statsPersonHours: "Person·h",
+      statsWorkers0: "×0",
+      statsWorkers1: "×1",
+      statsWorkers2: "×2",
+      statsWorkers3: "×3",
+      statsPeopleZoneName: "Whole zone",
+      statsPeopleSummary: "{days} days · 07:00–19:00 · person·h {personHours}",
+      statsPeopleDayDetail: "Whole zone: {date}",
+      statsNoPeopleData: "No whole-zone data for this period",
       statsFilters: "Filters",
       statsFrom: "From",
       statsTo: "To",
@@ -330,7 +360,7 @@
       detectionMode: "Detection mode",
       personDetModel: "Person detection model",
       personDetModelHelp:
-        "YOLOv8s — COCO person class. CrowdHuman — body and head. YOLO26n — lightweight ONNX.",
+        "YOLOv8s — COCO person class. CrowdHuman — body and head. YOLO26n — lightweight ONNX. Packages — package/label detection.",
       crowdhumanDetType: "CrowdHuman classes",
       crowdhumanBoth: "Body and head",
       crowdhumanBody: "Body only",
@@ -353,7 +383,7 @@
       recShiftEnd: "Shift end",
       recAutoEnabled: "Auto record by shift",
       recQuality: "Recording resolution",
-      recQualityHint: "Lower resolution -> smaller files.",
+      recQualityHint: "2K: detection stream switches to max quality automatically. Lower resolution -> smaller files.",
       recCrf: "CRF (quality/size)",
       recCrfHint: "Typical 24–32.",
       recordingsTitle: "Recordings",
@@ -538,6 +568,30 @@
 
     form.person_det_model?.addEventListener("change", updateCrowdHumanOptions);
 
+    async function loadPersonModels() {
+      const select = form.person_det_model;
+      if (!select) return;
+      try {
+        const data = await request(API + "/settings/person-models");
+        const items = data.items || [];
+        if (!items.length) return;
+        const current = select.value;
+        select.innerHTML = "";
+        items.forEach(function (m) {
+          const opt = document.createElement("option");
+          opt.value = m.id;
+          const missing = m.exists === false ? " (нет файла)" : "";
+          opt.textContent = (m.label_ru || m.id) + missing;
+          select.appendChild(opt);
+        });
+        if (current && select.querySelector('option[value="' + current + '"]')) {
+          select.value = current;
+        }
+      } catch (_e) {
+        /* оставляем статические option из HTML */
+      }
+    }
+
     confRange.addEventListener("input", () => {
       confPct.textContent = confRange.value + "%";
     });
@@ -550,6 +604,7 @@
       saveMsg.textContent = t("loading");
       saveMsg.className = "save-message";
       try {
+        await loadPersonModels();
         const s = await request(API + "/settings/detection");
         form.detection_mode.value = s.detection_mode || "face";
         if (form.person_det_model) {
@@ -1725,6 +1780,16 @@
       recToggleBtn.disabled = true;
       try {
         if (!recordingActive) {
+          let recW = 1280;
+          let recH = 720;
+          try {
+            const recSettings = await request(API + "/settings/recording");
+            recW = Number(recSettings.record_width) || 1280;
+            recH = Number(recSettings.record_height) || 720;
+          } catch (_) {}
+          if (recW >= 2560 || recH >= 1440) {
+            await setStreamMaxQuality(true);
+          }
           const rtsp = annotatedRtspUrl(currentCameraId);
           const res = await request(
             API +

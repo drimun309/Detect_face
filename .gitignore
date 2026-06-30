@@ -171,6 +171,9 @@ logs/
 !assets/w600k_mbf.onnx
 !assets/yolo26n.onnx
 !assets/yolov8s.pt
+!assets/package_label_stage2.pt
+assets/crowdhuman_yolov5m.pt
 
 # runtime config (камеры, пароли RTSP)
 go2rtc/go2rtc.yaml
+config/pakety_stream.json

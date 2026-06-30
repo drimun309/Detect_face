@@ -121,37 +121,40 @@ def save_embeddings(
     replace: bool,
     log: LogFn,
 ) -> int:
-    if replace:
-        db.session.exec(delete(FacesFrSqlSchema).where(FacesFrSqlSchema.name == name))
-        db.session.commit()
-        log(f"Удалены старые записи для «{name}»")
+    with db.lock:
+        if replace:
+            db.session.exec(delete(FacesFrSqlSchema).where(FacesFrSqlSchema.name == name))
+            db.session.commit()
+            log(f"Удалены старые записи для «{name}»")
 
-    now = datetime.now()
-    for embd in embeddings:
-        db.session.add(
-            FacesFrSqlSchema(
-                name=name,
-                embedding=embd.tolist(),
-                created_at=now,
-                updated_at=now,
+        now = datetime.now()
+        for embd in embeddings:
+            db.session.add(
+                FacesFrSqlSchema(
+                    name=name,
+                    embedding=embd.tolist(),
+                    created_at=now,
+                    updated_at=now,
+                )
             )
-        )
-    db.session.commit()
+        db.session.commit()
     return len(embeddings)
 
 
 def list_enrolled_summary(db: PgSyncDb) -> list[dict]:
-    rows = db.session.exec(
-        select(FacesFrSqlSchema.name, func.count(FacesFrSqlSchema.id)).group_by(FacesFrSqlSchema.name)
-    ).all()
+    with db.lock:
+        rows = db.session.exec(
+            select(FacesFrSqlSchema.name, func.count(FacesFrSqlSchema.id)).group_by(FacesFrSqlSchema.name)
+        ).all()
     return [{"name": name, "count": int(count)} for name, count in sorted(rows, key=lambda x: x[0])]
 
 
 def delete_person(db: PgSyncDb, name: str) -> int:
-    faces = db.session.exec(select(FacesFrSqlSchema).where(FacesFrSqlSchema.name == name)).all()
-    for face in faces:
-        db.session.delete(face)
-    db.session.commit()
+    with db.lock:
+        faces = db.session.exec(select(FacesFrSqlSchema).where(FacesFrSqlSchema.name == name)).all()
+        for face in faces:
+            db.session.delete(face)
+        db.session.commit()
     return len(faces)
 
 

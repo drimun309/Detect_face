@@ -8,7 +8,6 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from datetime import time as dt_time
-from threading import Lock
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import text
@@ -51,7 +50,7 @@ class RoiTimerStore:
 
     def __init__(self, pg: PgSyncDb) -> None:
         self.pg = pg
-        self._lock = Lock()
+        self._lock = pg.lock
         self._cache: dict[tuple[int, str], RoiTimerState] = {}
         self._last_present_ts: dict[tuple[int, str], float] = {}
         self._ensure_table()

@@ -4,6 +4,8 @@ import rootutils
 
 ROOT = rootutils.autosetup()
 
+from threading import RLock
+
 from pgvector.psycopg2 import register_vector
 from sqlalchemy import event
 from sqlmodel import Session, SQLModel, create_engine, text
@@ -11,6 +13,9 @@ from sqlmodel import Session, SQLModel, create_engine, text
 from src.utils.logger import get_logger
 
 log = get_logger()
+
+# Одна сессия SQLAlchemy не потокобезопасна — общий lock на все экземпляры PgSyncDb.
+_DB_LOCK = RLock()
 
 
 class PgSyncDb:
@@ -23,6 +28,7 @@ class PgSyncDb:
         self.user = user
         self.password = password
         self.db = db
+        self.lock = _DB_LOCK
 
         self.url = f"postgresql://{self.user}:{self.password}@{self.host}:{self.port}/{self.db}"
 
@@ -40,11 +46,12 @@ class PgSyncDb:
 
         self.session = Session(self.engine)
 
-        # test connection
-        self.session.exec(text("SELECT 1"))
+        with self.lock:
+            # test connection
+            self.session.exec(text("SELECT 1"))
 
-        # pg vector extension
-        self.session.exec(text("CREATE EXTENSION IF NOT EXISTS vector"))
+            # pg vector extension
+            self.session.exec(text("CREATE EXTENSION IF NOT EXISTS vector"))
 
         log.log(22, f"Connected SQL to {self.host}:{self.port}/{self.db}")
 

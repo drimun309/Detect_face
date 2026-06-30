@@ -37,6 +37,13 @@ PERSON_MODELS: dict[str, PersonModelInfo] = {
         label_en="YOLO26n ONNX",
         backend="onnx",
     ),
+    "package_label_stage2": PersonModelInfo(
+        id="package_label_stage2",
+        path="assets/package_label_stage2.pt",
+        label_ru="Пакеты + этикетки (YOLO seg)",
+        label_en="Packages + labels (YOLO seg)",
+        backend="package",
+    ),
 }
 
 DEFAULT_PERSON_MODEL_ID = "yolov8s"
@@ -44,6 +51,8 @@ DEFAULT_PERSON_MODEL_ID = "yolov8s"
 
 def infer_person_model_id(model_path: str) -> str:
     path = model_path.lower()
+    if "package_label" in path:
+        return "package_label_stage2"
     if "crowdhuman" in path:
         return "crowdhuman_yolov5m"
     if "yolo26" in path:

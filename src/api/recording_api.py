@@ -7,9 +7,21 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 
-from src.schema.roi_stats_schema import RoiDailyStatsRangeResponse, RoiStatDatesResponse
+from src.schema.people_zone_stats_schema import (
+    PeopleZoneDailyRangeResponse,
+    PeopleZoneStatDatesResponse,
+    PeopleZoneTimelineResponse,
+)
+from src.schema.roi_stats_schema import (
+    RoiDailyStatsRangeResponse,
+    RoiStatDatesResponse,
+    RoiWorkersTimelineResponse,
+    RoiWorkersTimelineZone,
+)
 from src.schema.roi_timeline_schema import RoiTimelineResponse, TimelineShift
 from src.schema.settings_schema import RecordingSettingsSchema
+from src.services.people_counter_store import PeopleCounterStore
+from src.services.roi_people_counter_store import RoiPeopleCounterStore, TZ, VIEW_START_HOUR, VIEW_END_HOUR
 from src.services.recording_service import get_recording_service
 from src.services.recording_settings_store import RecordingSettingsStore
 from src.services.roi_timer_store import RoiTimerStore
@@ -64,6 +76,18 @@ class RecordingApi:
                 store = None
         return store
 
+    def _people_counter_store(self) -> PeopleCounterStore | None:
+        try:
+            return get_stream_manager().people_counter_store
+        except RuntimeError:
+            return None
+
+    def _roi_people_counter_store(self) -> RoiPeopleCounterStore | None:
+        try:
+            return get_stream_manager().roi_people_counter_store
+        except RuntimeError:
+            return None
+
     def setup(self) -> None:
         @self.router.get("/settings/recording", response_model=RecordingSettingsSchema)
         async def get_recording_settings() -> RecordingSettingsSchema:
@@ -88,10 +112,15 @@ class RecordingApi:
         )
         async def get_roi_stat_dates(camera_id: int) -> RoiStatDatesResponse:
             store = self._roi_timer_store()
-            dates: list[str] = []
+            people_store = self._roi_people_counter_store()
+            dates: set[str] = set()
             if store is not None:
-                dates = store.get_stat_dates(camera_id)
-            return RoiStatDatesResponse(camera_id=camera_id, dates=dates)
+                dates.update(store.get_stat_dates(camera_id))
+            if people_store is not None:
+                dates.update(people_store.get_stat_dates(camera_id))
+            return RoiStatDatesResponse(
+                camera_id=camera_id, dates=sorted(dates)
+            )
 
         @self.router.get(
             "/roi-stats/{camera_id}/daily",
@@ -112,7 +141,42 @@ class RecordingApi:
                     days=[],
                 )
             raw = store.get_daily_stats_range(camera_id, from_date, to_date)
+            people_store = self._roi_people_counter_store()
+            if people_store is not None:
+                raw = people_store.merge_into_daily_stats(raw)
             return RoiDailyStatsRangeResponse(**raw)
+
+        @self.router.get(
+            "/roi-stats/{camera_id}/{date}/workers-timeline",
+            response_model=RoiWorkersTimelineResponse,
+        )
+        async def get_roi_workers_timeline(
+            camera_id: int,
+            date: str,
+        ) -> RoiWorkersTimelineResponse:
+            people_store = self._roi_people_counter_store()
+            if people_store is None:
+                return RoiWorkersTimelineResponse(camera_id=camera_id, date=date)
+            zones_raw = people_store.get_timelines_for_camera(camera_id, date)
+            range_start = 0.0
+            range_end = 0.0
+            if zones_raw:
+                parts = date.split("-")
+                if len(parts) == 3:
+                    y, m, d = int(parts[0]), int(parts[1]), int(parts[2])
+                    start = datetime(y, m, d, VIEW_START_HOUR, 0, 0, tzinfo=TZ)
+                    end = datetime(y, m, d, VIEW_END_HOUR, 0, 0, tzinfo=TZ)
+                    range_start = start.timestamp()
+                    range_end = end.timestamp()
+            zones = [RoiWorkersTimelineZone(**z) for z in zones_raw]
+            return RoiWorkersTimelineResponse(
+                camera_id=camera_id,
+                date=date,
+                range_start=range_start,
+                range_end=range_end,
+                timezone=str(TZ),
+                zones=zones,
+            )
 
         @self.router.get(
             "/roi-stats/{camera_id}/{date}/timeline",
@@ -157,6 +221,53 @@ class RecordingApi:
                 events_in_range=int(raw.get("events_in_range") or 0),
                 timezone=str(raw.get("timezone") or "UTC"),
             )
+
+        @self.router.get(
+            "/people-zone-stats/{camera_id}/dates",
+            response_model=PeopleZoneStatDatesResponse,
+        )
+        async def get_people_zone_stat_dates(
+            camera_id: int,
+        ) -> PeopleZoneStatDatesResponse:
+            store = self._people_counter_store()
+            if store is None:
+                return PeopleZoneStatDatesResponse(camera_id=camera_id, dates=[])
+            return PeopleZoneStatDatesResponse(**store.get_stat_dates_meta(camera_id))
+
+        @self.router.get(
+            "/people-zone-stats/{camera_id}/daily",
+            response_model=PeopleZoneDailyRangeResponse,
+        )
+        async def get_people_zone_daily_stats(
+            camera_id: int,
+            from_date: str = Query(..., alias="from", description="YYYY-MM-DD"),
+            to_date: str = Query(..., alias="to", description="YYYY-MM-DD"),
+        ) -> PeopleZoneDailyRangeResponse:
+            store = self._people_counter_store()
+            if store is None:
+                return PeopleZoneDailyRangeResponse(
+                    camera_id=camera_id,
+                    from_date=from_date,
+                    to_date=to_date,
+                    timezone="UTC",
+                    days=[],
+                )
+            raw = store.get_daily_stats_range(camera_id, from_date, to_date)
+            return PeopleZoneDailyRangeResponse(**raw)
+
+        @self.router.get(
+            "/people-zone-stats/{camera_id}/{date}/timeline",
+            response_model=PeopleZoneTimelineResponse,
+        )
+        async def get_people_zone_timeline(
+            camera_id: int,
+            date: str,
+        ) -> PeopleZoneTimelineResponse:
+            store = self._people_counter_store()
+            if store is None:
+                return PeopleZoneTimelineResponse(camera_id=camera_id, date=date)
+            raw = store.get_timeline(camera_id, date)
+            return PeopleZoneTimelineResponse(**raw)
 
         @self.router.get(
             "/recordings/{camera_id}/{camera_name}/{date}/timeline",

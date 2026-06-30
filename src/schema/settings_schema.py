@@ -45,7 +45,9 @@ class DetectionSettingsSchema(BaseModel):
         "face",
         description="Режим детекции: только лица, только люди или вместе",
     )
-    person_det_model: Literal["yolov8s", "crowdhuman_yolov5m", "yolo26n"] = Field(
+    person_det_model: Literal[
+        "yolov8s", "crowdhuman_yolov5m", "yolo26n", "package_label_stage2"
+    ] = Field(
         "yolov8s",
         description="Модель детекции человека",
     )

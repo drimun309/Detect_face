@@ -67,6 +67,15 @@ def format_head_label(score: float) -> str:
     return f"работник {score:.2f}"
 
 
+def format_object_label(category: str, score: float) -> str:
+    cat = (category or "object").lower()
+    if cat == "package":
+        return f"пакет {score:.2f}"
+    if cat == "label":
+        return f"этикетка {score:.2f}"
+    return f"{cat} {score:.2f}"
+
+
 def worker_count_word(n: int) -> str:
     n_abs = abs(int(n)) % 100
     n1 = n_abs % 10
@@ -221,6 +230,10 @@ def draw_detections(
             color = (255, 170, 0)
         elif cat == "head":
             color = (68, 68, 255)
+        elif cat == "package":
+            color = (0, 200, 120)
+        elif cat == "label":
+            color = (200, 120, 255)
         else:
             color = (0, 200, 0) if name else (0, 140, 255)
         dist = None
@@ -230,6 +243,8 @@ def draw_detections(
             label = format_person_label(score)
         elif cat == "head":
             label = format_head_label(score)
+        elif cat in ("package", "label"):
+            label = format_object_label(cat, score)
         else:
             label = format_face_label(name, score, dist, show_unknown_distance)
         cv2.rectangle(output, (x1, y1), (x2, y2), color, 2)

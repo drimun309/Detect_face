@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from threading import Lock
 
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
@@ -26,7 +25,7 @@ class DepartmentStore:
 
     def __init__(self, pg: PgSyncDb) -> None:
         self.pg = pg
-        self._lock = Lock()
+        self._lock = pg.lock
         self._ensure_table()
         self._seed_defaults()
 

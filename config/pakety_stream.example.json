@@ -1,0 +1,14 @@
+{
+  "camera_name": "пакеты",
+  "rtsp": {
+    "ip": "YOUR_CAMERA_HOST",
+    "port": 41900,
+    "path": "/stream",
+    "username": "user",
+    "password": "password"
+  },
+  "model": "assets/package_label_stage2.pt",
+  "conf": 0.25,
+  "imgsz": 960,
+  "web_port": 8766
+}

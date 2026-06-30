@@ -20,6 +20,7 @@ from src.streaming.face_annotated_stream import (
     MAX_STREAM_WIDTH,
 )
 from src.services.people_counter_store import PeopleCounterStore
+from src.services.roi_people_counter_store import RoiPeopleCounterStore
 from src.utils.logger import get_logger
 from src.utils.roi_helpers import RoiPolygonData, polygons_points
 from src.utils.rtsp import build_go2rtc_rtsp_url, build_rtsp_url
@@ -61,6 +62,7 @@ class FaceStreamManager:
         self.face_store = init_face_embedding_store(self.db)
         self.roi_timer_store = RoiTimerStore(self.db)
         self.people_counter_store = PeopleCounterStore(self.db)
+        self.roi_people_counter_store = RoiPeopleCounterStore(self.db)
         log.info(f"Face DB ready: {self.face_store.count} embedding(s) loaded")
 
     def _create_person_engine(self, model_id: str):
@@ -235,6 +237,7 @@ class FaceStreamManager:
 
     def delete_roi_timers(self, camera_id: int) -> None:
         self.roi_timer_store.delete_camera(camera_id)
+        self.roi_people_counter_store.delete_camera(camera_id)
 
     def start_stream(self, camera: CameraSchema) -> bool:
         if not camera.enabled:
@@ -259,13 +262,17 @@ class FaceStreamManager:
                 person_engine=self.person_engine,
                 roi_timer_store=self.roi_timer_store,
                 people_counter_store=self.people_counter_store,
+                roi_people_counter_store=self.roi_people_counter_store,
                 roi_switch_seconds=self.cfg.ROI_TIMER_SWITCH_SEC,
                 roi_reset_grace_seconds=self.cfg.ROI_TIMER_RESET_GRACE_SEC,
             )
             if not streamer.start():
                 return False
             self.streamers[camera.id] = streamer
-            log.info(f"Started face stream cam{camera.id} -> {streamer.config.publish_url}")
+            log.info(
+                f"Started face stream cam{camera.id} ({camera.name}) "
+                f"model={self._person_model_id} -> {streamer.config.publish_url}"
+            )
             return True
 
     def stop_stream(self, camera_id: int) -> bool:
