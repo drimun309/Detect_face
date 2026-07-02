@@ -20,6 +20,7 @@ from src.schema.roi_stats_schema import (
 )
 from src.schema.roi_timeline_schema import RoiTimelineResponse, TimelineShift
 from src.schema.settings_schema import RecordingSettingsSchema
+from src.services.camera_store import CameraStore
 from src.services.people_counter_store import PeopleCounterStore
 from src.services.roi_people_counter_store import RoiPeopleCounterStore, TZ, VIEW_START_HOUR, VIEW_END_HOUR
 from src.services.recording_service import get_recording_service
@@ -36,10 +37,12 @@ class RecordingApi:
         store: RecordingSettingsStore,
         roi_timer_store: RoiTimerStore | None = None,
         settings_store: SettingsStore | None = None,
+        camera_store: CameraStore | None = None,
     ) -> None:
         self.store = store
         self.roi_timer_store = roi_timer_store
         self.settings_store = settings_store
+        self.camera_store = camera_store
         self.router = APIRouter()
         self.setup()
 
@@ -87,6 +90,18 @@ class RecordingApi:
             return get_stream_manager().roi_people_counter_store
         except RuntimeError:
             return None
+
+    def _camera_has_people_zone(self, camera_id: int) -> bool:
+        store = self.camera_store
+        if store is None:
+            try:
+                store = get_stream_manager().camera_store
+            except RuntimeError:
+                store = None
+        if store is None:
+            return True
+        enabled, polygon, _max_workers = store.get_people_zone_runtime(camera_id)
+        return enabled and len(polygon) >= 3
 
     def setup(self) -> None:
         @self.router.get("/settings/recording", response_model=RecordingSettingsSchema)
@@ -229,6 +244,8 @@ class RecordingApi:
         async def get_people_zone_stat_dates(
             camera_id: int,
         ) -> PeopleZoneStatDatesResponse:
+            if not self._camera_has_people_zone(camera_id):
+                return PeopleZoneStatDatesResponse(camera_id=camera_id, dates=[])
             store = self._people_counter_store()
             if store is None:
                 return PeopleZoneStatDatesResponse(camera_id=camera_id, dates=[])
@@ -243,6 +260,14 @@ class RecordingApi:
             from_date: str = Query(..., alias="from", description="YYYY-MM-DD"),
             to_date: str = Query(..., alias="to", description="YYYY-MM-DD"),
         ) -> PeopleZoneDailyRangeResponse:
+            if not self._camera_has_people_zone(camera_id):
+                return PeopleZoneDailyRangeResponse(
+                    camera_id=camera_id,
+                    from_date=from_date,
+                    to_date=to_date,
+                    timezone="UTC",
+                    days=[],
+                )
             store = self._people_counter_store()
             if store is None:
                 return PeopleZoneDailyRangeResponse(
@@ -263,6 +288,8 @@ class RecordingApi:
             camera_id: int,
             date: str,
         ) -> PeopleZoneTimelineResponse:
+            if not self._camera_has_people_zone(camera_id):
+                return PeopleZoneTimelineResponse(camera_id=camera_id, date=date)
             store = self._people_counter_store()
             if store is None:
                 return PeopleZoneTimelineResponse(camera_id=camera_id, date=date)
