@@ -137,3 +137,23 @@ def scale_polygons_to_pixels(
     polygons: list[list[tuple[float, float]]], width: int, height: int
 ) -> list[list[tuple[int, int]]]:
     return [[(int(x * width), int(y * height)) for x, y in poly] for poly in polygons]
+
+
+def box_intersects_polygon(
+    box: list[int] | tuple[int, int, int, int],
+    polygon: list[tuple[float, float]],
+    width: int,
+    height: int,
+) -> bool:
+    """Пересечение bbox (пиксели) с ROI-полигоном (нормализованные 0–1)."""
+    if len(polygon) < 3 or width <= 0 or height <= 0:
+        return False
+    x1, y1, x2, y2 = box
+    norm_points = (
+        ((x1 + x2) / 2.0 / width, (y1 + y2) / 2.0 / height),
+        (x1 / width, y1 / height),
+        (x2 / width, y1 / height),
+        (x2 / width, y2 / height),
+        (x1 / width, y2 / height),
+    )
+    return any(point_in_polygon(p, polygon) for p in norm_points)

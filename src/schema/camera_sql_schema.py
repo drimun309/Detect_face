@@ -22,3 +22,6 @@ class CameraSqlSchema(SQLModel, table=True):
     people_zone_enabled: bool = Field(default=False)
     people_zone_config: str = Field(default="{}")
     department_id: Optional[int] = Field(default=None, foreign_key="departments.id")
+    package_detection_enabled: bool = Field(default=False)
+    stream_width: Optional[int] = Field(default=None)
+    stream_height: Optional[int] = Field(default=None)

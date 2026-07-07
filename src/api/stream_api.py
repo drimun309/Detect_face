@@ -8,7 +8,13 @@ from src.streaming.stream_manager import get_stream_manager
 
 
 class StreamQualityUpdate(BaseModel):
-    max_quality: bool = Field(..., description="Максимальное разрешение потока с детекцией")
+    preset: str | None = Field(
+        None,
+        description="global | 640x360 | 960x540 | 1280x720 | 1920x1080 | 2560x1440",
+    )
+    max_quality: bool | None = Field(
+        None, description="Устаревший флаг: true = временно 2K до конца записи"
+    )
 
 
 class StreamApi:
@@ -46,6 +52,17 @@ class StreamApi:
                 raise HTTPException(status_code=404, detail="Stream not running")
             return {"ok": True, "camera_id": camera_id}
 
+        @self.router.get("/cameras/{camera_id}/stream/quality")
+        async def get_stream_quality(camera_id: int) -> dict:
+            camera = self.store.get(camera_id)
+            if not camera:
+                raise HTTPException(status_code=404, detail="Camera not found")
+            manager = get_stream_manager()
+            try:
+                return manager.get_camera_stream_quality(camera_id)
+            except ValueError as exc:
+                raise HTTPException(status_code=404, detail=str(exc)) from exc
+
         @self.router.post("/cameras/{camera_id}/stream/quality")
         async def set_stream_quality(
             camera_id: int, payload: StreamQualityUpdate
@@ -55,7 +72,20 @@ class StreamApi:
                 raise HTTPException(status_code=404, detail="Camera not found")
             manager = get_stream_manager()
             try:
-                return manager.set_stream_max_quality(camera_id, payload.max_quality)
+                if payload.preset is not None:
+                    try:
+                        return manager.set_camera_stream_quality(
+                            camera_id, payload.preset, persist=True
+                        )
+                    except ValueError as exc:
+                        raise HTTPException(status_code=400, detail=str(exc)) from exc
+                if payload.max_quality is not None:
+                    return manager.set_stream_max_quality(
+                        camera_id, payload.max_quality
+                    )
+                raise HTTPException(
+                    status_code=400, detail="Укажите preset или max_quality"
+                )
             except ValueError as exc:
                 raise HTTPException(status_code=404, detail=str(exc)) from exc
 

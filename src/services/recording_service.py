@@ -178,7 +178,7 @@ class RecordingService:
             from src.streaming.stream_manager import get_stream_manager
 
             mgr = get_stream_manager()
-            mgr.set_stream_max_quality(camera_id, True)
+            mgr.boost_stream_quality_for_recording(camera_id)
             log.info(f"[cam {camera_id}] Max quality stream enabled for 2K recording")
         except Exception as exc:
             log.warning(f"[cam {camera_id}] Could not enable max quality for 2K: {exc}")
@@ -276,6 +276,12 @@ class RecordingService:
         log.info(f"[cam {camera_id}] Stopping recording")
         try:
             process.terminate()
+        except Exception:
+            pass
+        try:
+            from src.streaming.stream_manager import get_stream_manager
+
+            get_stream_manager().clear_recording_boost(camera_id)
         except Exception:
             pass
 

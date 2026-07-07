@@ -44,6 +44,8 @@ class CameraStore:
         self._ensure_roi_columns()
         self._ensure_people_zone_columns()
         self._ensure_department_column()
+        self._ensure_package_detection_column()
+        self._ensure_stream_quality_columns()
         self._ensure_roi_timer_table()
         self._migrate_legacy_json_once()
         self._sync_id_sequence()
@@ -98,6 +100,38 @@ class CameraStore:
         except SQLAlchemyError as exc:
             self._rollback()
             log.warning(f"department_id column migration: {exc}")
+
+    def _ensure_package_detection_column(self) -> None:
+        try:
+            self.pg.session.exec(
+                text(
+                    "ALTER TABLE cameras ADD COLUMN IF NOT EXISTS "
+                    "package_detection_enabled BOOLEAN DEFAULT FALSE"
+                )
+            )
+            self.pg.session.commit()
+        except SQLAlchemyError as exc:
+            self._rollback()
+            log.warning(f"package_detection column migration: {exc}")
+
+    def _ensure_stream_quality_columns(self) -> None:
+        try:
+            self.pg.session.exec(
+                text(
+                    "ALTER TABLE cameras ADD COLUMN IF NOT EXISTS "
+                    "stream_width INTEGER NULL"
+                )
+            )
+            self.pg.session.exec(
+                text(
+                    "ALTER TABLE cameras ADD COLUMN IF NOT EXISTS "
+                    "stream_height INTEGER NULL"
+                )
+            )
+            self.pg.session.commit()
+        except SQLAlchemyError as exc:
+            self._rollback()
+            log.warning(f"stream quality columns migration: {exc}")
 
     def _ensure_roi_timer_table(self) -> None:
         try:
@@ -212,6 +246,11 @@ class CameraStore:
             roi_enabled=bool(getattr(row, "roi_enabled", False)),
             department_id=dept_id,
             department_name=dept_names.get(dept_id) if dept_id else None,
+            package_detection_enabled=bool(
+                getattr(row, "package_detection_enabled", False)
+            ),
+            stream_width=getattr(row, "stream_width", None),
+            stream_height=getattr(row, "stream_height", None),
         )
 
     def _polygons_to_response(
@@ -326,6 +365,44 @@ class CameraStore:
             return False, [], 3
         polygon = [(p.x, p.y) for p in cfg.polygon]
         return True, polygon, min(3, max(1, cfg.max_workers))
+
+    def set_package_detection(
+        self, camera_id: int, enabled: bool
+    ) -> Optional[CameraSchema]:
+        with self._lock:
+            try:
+                row = self.pg.session.get(CameraSqlSchema, camera_id)
+                if not row:
+                    return None
+                row.package_detection_enabled = bool(enabled)
+                self.pg.session.add(row)
+                self.pg.session.commit()
+                self.pg.session.refresh(row)
+            except SQLAlchemyError:
+                self._rollback()
+                raise
+        return self._to_schema(row)
+
+    def set_stream_quality(
+        self,
+        camera_id: int,
+        stream_width: int | None,
+        stream_height: int | None,
+    ) -> Optional[CameraSchema]:
+        with self._lock:
+            try:
+                row = self.pg.session.get(CameraSqlSchema, camera_id)
+                if not row:
+                    return None
+                row.stream_width = stream_width
+                row.stream_height = stream_height
+                self.pg.session.add(row)
+                self.pg.session.commit()
+                self.pg.session.refresh(row)
+            except SQLAlchemyError:
+                self._rollback()
+                raise
+        return self._to_schema(row)
 
     def get_roi_polygons(self, camera_id: int) -> tuple[bool, list[RoiPolygonData]]:
         row = self.pg.session.get(CameraSqlSchema, camera_id)

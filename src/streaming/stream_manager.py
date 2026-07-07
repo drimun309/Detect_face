@@ -19,7 +19,15 @@ from src.streaming.face_annotated_stream import (
     MAX_STREAM_HEIGHT,
     MAX_STREAM_WIDTH,
 )
+from src.utils.stream_quality import (
+    MAX_STREAM_HEIGHT as SQ_MAX_H,
+    MAX_STREAM_WIDTH as SQ_MAX_W,
+    resolve_stream_output_size,
+    size_to_preset,
+)
+from src.services.package_counter_store import PackageCounterStore
 from src.services.people_counter_store import PeopleCounterStore
+from src.services.package_detection_service import get_package_detection_service
 from src.services.roi_people_counter_store import RoiPeopleCounterStore
 from src.utils.logger import get_logger
 from src.utils.roi_helpers import RoiPolygonData, polygons_points
@@ -37,7 +45,8 @@ class FaceStreamManager:
         self.mediamtx_url = cfg.MEDIAMTX_URL.rstrip("/")
         self.streamers: Dict[int, FaceAnnotatedStreamer] = {}
         self._lock = threading.Lock()
-        self._max_quality: dict[int, bool] = {}
+        self._session_override: dict[int, tuple[int, int]] = {}
+        self._package_camera_ids: set[int] = set()
 
         self.engine = FrOnnxEngine(
             det_engine_path=cfg.FR_DET_ENGINE_PATH,
@@ -63,6 +72,7 @@ class FaceStreamManager:
         self.roi_timer_store = RoiTimerStore(self.db)
         self.people_counter_store = PeopleCounterStore(self.db)
         self.roi_people_counter_store = RoiPeopleCounterStore(self.db)
+        self.package_counter_store = PackageCounterStore(self.db)
         log.info(f"Face DB ready: {self.face_store.count} embedding(s) loaded")
 
     def _create_person_engine(self, model_id: str):
@@ -140,6 +150,16 @@ class FaceStreamManager:
     def reload_embeddings(self) -> int:
         return self.face_store.reload()
 
+    def _resolve_output_size(self, camera: CameraSchema) -> tuple[int, int, bool]:
+        override = self._session_override.get(camera.id)
+        return resolve_stream_output_size(
+            camera.stream_width,
+            camera.stream_height,
+            self.cfg.STREAM_WIDTH,
+            self.cfg.STREAM_HEIGHT,
+            override,
+        )
+
     def _streamer_config(self, camera: CameraSchema) -> FaceStreamerConfig:
         roi_enabled, roi_defs = False, []
         if self.camera_store:
@@ -162,11 +182,8 @@ class FaceStreamManager:
             if self.cfg.GO2RTC_RTSP_URL
             else ""
         )
-        max_q = self._max_quality.get(camera.id, False)
-        if max_q:
-            output_size = (MAX_STREAM_WIDTH, MAX_STREAM_HEIGHT)
-        else:
-            output_size = (self.cfg.STREAM_WIDTH, self.cfg.STREAM_HEIGHT)
+        output_w, output_h, max_q = self._resolve_output_size(camera)
+        output_size = (output_w, output_h)
         return FaceStreamerConfig(
             camera_id=camera.id,
             camera_name=camera.name,
@@ -189,6 +206,12 @@ class FaceStreamManager:
             people_zone_enabled=people_enabled,
             people_zone_polygon=people_polygon,
             people_zone_max_workers=people_max_workers,
+            package_detection_enabled=bool(
+                getattr(camera, "package_detection_enabled", False)
+            ),
+            package_det_conf=self.cfg.PACKAGE_DET_CONF,
+            package_det_imgsz=self.cfg.PACKAGE_DET_IMGSZ,
+            package_count_dwell_sec=self.cfg.PACKAGE_COUNT_DWELL_SEC,
         )
 
     def _apply_camera_config_to_streamer(
@@ -209,6 +232,20 @@ class FaceStreamManager:
         streamer.update_people_zone(
             people_enabled, people_polygon, people_max_workers
         )
+
+    def _release_package_if_needed(self, camera_id: int) -> None:
+        if camera_id not in self._package_camera_ids:
+            return
+        try:
+            get_package_detection_service().release()
+        except RuntimeError:
+            pass
+        self._package_camera_ids.discard(camera_id)
+
+    def update_package_detection(self, camera_id: int, enabled: bool) -> None:
+        streamer = self.streamers.get(camera_id)
+        if streamer:
+            streamer.update_package_detection(enabled)
 
     def update_roi_polygons(
         self,
@@ -238,6 +275,7 @@ class FaceStreamManager:
     def delete_roi_timers(self, camera_id: int) -> None:
         self.roi_timer_store.delete_camera(camera_id)
         self.roi_people_counter_store.delete_camera(camera_id)
+        self.package_counter_store.delete_camera(camera_id)
 
     def start_stream(self, camera: CameraSchema) -> bool:
         if not camera.enabled:
@@ -255,23 +293,37 @@ class FaceStreamManager:
                 log.error(f"Max streamers ({MAX_STREAMERS}) reached")
                 return False
 
+            package_engine = None
+            if getattr(camera, "package_detection_enabled", False):
+                try:
+                    package_engine = get_package_detection_service().acquire()
+                    self._package_camera_ids.add(camera.id)
+                except RuntimeError as exc:
+                    log.error(f"Package detection unavailable for cam{camera.id}: {exc}")
+                    return False
+
             streamer = FaceAnnotatedStreamer(
                 self._streamer_config(camera),
                 self.engine,
                 self.face_store,
                 person_engine=self.person_engine,
+                package_engine=package_engine,
                 roi_timer_store=self.roi_timer_store,
                 people_counter_store=self.people_counter_store,
                 roi_people_counter_store=self.roi_people_counter_store,
+                package_counter_store=self.package_counter_store,
                 roi_switch_seconds=self.cfg.ROI_TIMER_SWITCH_SEC,
                 roi_reset_grace_seconds=self.cfg.ROI_TIMER_RESET_GRACE_SEC,
             )
             if not streamer.start():
+                self._release_package_if_needed(camera.id)
                 return False
             self.streamers[camera.id] = streamer
             log.info(
                 f"Started face stream cam{camera.id} ({camera.name}) "
-                f"model={self._person_model_id} -> {streamer.config.publish_url}"
+                f"model={self._person_model_id} "
+                f"package_det={getattr(camera, 'package_detection_enabled', False)} "
+                f"-> {streamer.config.publish_url}"
             )
             return True
 
@@ -280,6 +332,7 @@ class FaceStreamManager:
             streamer = self.streamers.pop(camera_id, None)
         if not streamer:
             return False
+        self._release_package_if_needed(camera_id)
         streamer.stop()
         return True
 
@@ -289,39 +342,110 @@ class FaceStreamManager:
             return True
         return self.start_stream(camera)
 
-    def set_stream_max_quality(self, camera_id: int, max_quality: bool) -> dict:
+    def set_camera_stream_quality(
+        self, camera_id: int, preset: str, *, persist: bool = True
+    ) -> dict:
+        from src.utils.stream_quality import preset_to_size
+
         if not self.camera_store:
             raise RuntimeError("Camera store not configured")
         camera = self.camera_store.get(camera_id)
         if not camera:
             raise ValueError("Camera not found")
 
-        if max_quality:
-            self._max_quality[camera_id] = True
+        width, height = preset_to_size(preset)
+        if persist:
+            camera = self.camera_store.set_stream_quality(camera_id, width, height)
+            if not camera:
+                raise ValueError("Camera not found")
+            self._session_override.pop(camera_id, None)
         else:
-            self._max_quality.pop(camera_id, None)
+            if width is None or height is None:
+                self._session_override.pop(camera_id, None)
+            else:
+                self._session_override[camera_id] = (width, height)
 
-        normal_size = (self.cfg.STREAM_WIDTH, self.cfg.STREAM_HEIGHT)
+        eff_w, eff_h, max_q = self._resolve_output_size(camera)
         if self.is_running(camera_id):
             self.restart_stream(camera)
             streamer = self.streamers.get(camera_id)
             if streamer:
-                new_size = streamer.config.output_size
-            else:
-                new_size = (MAX_STREAM_WIDTH, MAX_STREAM_HEIGHT) if max_quality else normal_size
-        elif max_quality:
-            self.start_stream(camera)
-            streamer = self.streamers.get(camera_id)
-            new_size = streamer.config.output_size if streamer else (MAX_STREAM_WIDTH, MAX_STREAM_HEIGHT)
-        else:
-            new_size = normal_size
+                eff_w, eff_h = streamer.config.output_size
+                max_q = streamer.config.max_quality
 
         return {
             "ok": True,
             "camera_id": camera_id,
-            "max_quality": max_quality,
-            "stream_width": new_size[0],
-            "stream_height": new_size[1],
+            "preset": size_to_preset(camera.stream_width, camera.stream_height),
+            "stream_width": camera.stream_width,
+            "stream_height": camera.stream_height,
+            "effective_width": eff_w,
+            "effective_height": eff_h,
+            "max_quality": max_q,
+        }
+
+    def boost_stream_quality_for_recording(self, camera_id: int) -> None:
+        self._session_override[camera_id] = (SQ_MAX_W, SQ_MAX_H)
+        if not self.is_running(camera_id) or not self.camera_store:
+            return
+        camera = self.camera_store.get(camera_id)
+        if camera:
+            self.restart_stream(camera)
+
+    def clear_recording_boost(self, camera_id: int) -> None:
+        if camera_id not in self._session_override:
+            return
+        self._session_override.pop(camera_id, None)
+        if not self.is_running(camera_id) or not self.camera_store:
+            return
+        camera = self.camera_store.get(camera_id)
+        if camera:
+            self.restart_stream(camera)
+
+    def set_stream_max_quality(self, camera_id: int, max_quality: bool) -> dict:
+        if max_quality:
+            return self.set_camera_stream_quality(
+                camera_id, "2560x1440", persist=False
+            )
+        self._session_override.pop(camera_id, None)
+        if not self.camera_store:
+            raise RuntimeError("Camera store not configured")
+        camera = self.camera_store.get(camera_id)
+        if not camera:
+            raise ValueError("Camera not found")
+        eff_w, eff_h, max_q = self._resolve_output_size(camera)
+        if self.is_running(camera_id):
+            self.restart_stream(camera)
+            streamer = self.streamers.get(camera_id)
+            if streamer:
+                eff_w, eff_h = streamer.config.output_size
+                max_q = streamer.config.max_quality
+        return {
+            "ok": True,
+            "camera_id": camera_id,
+            "preset": size_to_preset(camera.stream_width, camera.stream_height),
+            "stream_width": camera.stream_width,
+            "stream_height": camera.stream_height,
+            "effective_width": eff_w,
+            "effective_height": eff_h,
+            "max_quality": max_q,
+        }
+
+    def get_camera_stream_quality(self, camera_id: int) -> dict:
+        if not self.camera_store:
+            raise RuntimeError("Camera store not configured")
+        camera = self.camera_store.get(camera_id)
+        if not camera:
+            raise ValueError("Camera not found")
+        eff_w, eff_h, max_q = self._resolve_output_size(camera)
+        return {
+            "camera_id": camera_id,
+            "preset": size_to_preset(camera.stream_width, camera.stream_height),
+            "stream_width": camera.stream_width,
+            "stream_height": camera.stream_height,
+            "effective_width": eff_w,
+            "effective_height": eff_h,
+            "max_quality": max_q,
         }
 
     def is_running(self, camera_id: int) -> bool:
@@ -340,6 +464,11 @@ class FaceStreamManager:
         statuses = []
         for camera in cameras:
             metrics = self.get_status(camera.id)
+            eff_w, eff_h, max_q = self._resolve_output_size(camera)
+            if metrics:
+                eff_w = metrics.get("stream_width") or eff_w
+                eff_h = metrics.get("stream_height") or eff_h
+                max_q = bool(metrics.get("max_quality"))
             statuses.append(
                 {
                     "camera_id": camera.id,
@@ -363,9 +492,19 @@ class FaceStreamManager:
                         else self.face_store.count
                     ),
                     "publish_url": self.get_publish_url(camera.id),
-                    "stream_width": metrics.get("stream_width") if metrics else None,
-                    "stream_height": metrics.get("stream_height") if metrics else None,
-                    "max_quality": bool(metrics.get("max_quality")) if metrics else False,
+                    "stream_width": eff_w,
+                    "stream_height": eff_h,
+                    "stream_quality_preset": size_to_preset(
+                        camera.stream_width, camera.stream_height
+                    ),
+                    "configured_stream_width": camera.stream_width,
+                    "configured_stream_height": camera.stream_height,
+                    "max_quality": max_q,
+                    "package_detection_enabled": bool(
+                        getattr(camera, "package_detection_enabled", False)
+                    ),
+                    "packages_count": metrics.get("packages_count", 0) if metrics else 0,
+                    "labels_count": metrics.get("labels_count", 0) if metrics else 0,
                 }
             )
         return statuses

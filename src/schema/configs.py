@@ -57,6 +57,10 @@ class Configs(BaseSettings):
     STREAM_SHOW_UNKNOWN_DISTANCE: bool = False
     ROI_TIMER_SWITCH_SEC: float = 60.0
     ROI_TIMER_RESET_GRACE_SEC: float = 7.0
+    PACKAGE_DET_MODEL_PATH: str = "assets/package_label_stage2.pt"
+    PACKAGE_DET_CONF: float = 0.25
+    PACKAGE_DET_IMGSZ: int = 960
+    PACKAGE_COUNT_DWELL_SEC: float = 1.0
     DETECTION_MODE: Literal["face", "person", "face_person"] = "face"
     FR_DET_CONF: float = 0.25
     FR_DET_NMS: float = 0.45

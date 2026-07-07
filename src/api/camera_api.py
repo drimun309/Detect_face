@@ -8,6 +8,11 @@ from src.schema.camera_schema import (
     CameraSchema,
     CameraUpdateSchema,
 )
+from src.schema.package_detection_schema import (
+    PackageDetectionResponse,
+    PackageDetectionUpdate,
+    PackageRoiCounterItem,
+)
 from src.schema.people_zone_schema import PeopleZoneConfig, PeopleZoneResponse
 from src.schema.roi_schema import RoiResponse, RoiUpdate
 from src.services.camera_store import CameraStore
@@ -200,3 +205,55 @@ class CameraApi:
                 raise HTTPException(status_code=404, detail="Camera not found")
             self._apply_people_zone_to_stream(camera_id)
             return zone
+
+        @self.router.get(
+            "/cameras/{camera_id}/package-detection",
+            response_model=PackageDetectionResponse,
+        )
+        async def get_package_detection(camera_id: int) -> PackageDetectionResponse:
+            camera = self.store.get(camera_id)
+            if not camera:
+                raise HTTPException(status_code=404, detail="Camera not found")
+            packed_today = 0
+            packed_by_roi: list[PackageRoiCounterItem] = []
+            try:
+                store = get_stream_manager().package_counter_store
+                states = store.get_states(camera_id)
+                packed_by_roi = [
+                    PackageRoiCounterItem(
+                        roi_key=s.roi_key, packed_today=s.packed_today
+                    )
+                    for s in states
+                ]
+                packed_today = sum(s.packed_today for s in states)
+            except RuntimeError:
+                pass
+            return PackageDetectionResponse(
+                camera_id=camera.id,
+                package_detection_enabled=camera.package_detection_enabled,
+                packed_today=packed_today,
+                packed_by_roi=packed_by_roi,
+            )
+
+        @self.router.put(
+            "/cameras/{camera_id}/package-detection",
+            response_model=PackageDetectionResponse,
+        )
+        async def update_package_detection(
+            camera_id: int, payload: PackageDetectionUpdate
+        ) -> PackageDetectionResponse:
+            camera = self.store.set_package_detection(camera_id, payload.enabled)
+            if not camera:
+                raise HTTPException(status_code=404, detail="Camera not found")
+            try:
+                manager = get_stream_manager()
+                if manager.is_running(camera_id):
+                    manager.restart_stream(camera)
+            except RuntimeError:
+                pass
+            return PackageDetectionResponse(
+                camera_id=camera.id,
+                package_detection_enabled=camera.package_detection_enabled,
+                packed_today=0,
+                packed_by_roi=[],
+            )

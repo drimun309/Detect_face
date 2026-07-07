@@ -25,12 +25,14 @@ from src.utils.face_draw import (
 )
 from src.utils.roi_helpers import (
     assign_detection_to_roi,
+    box_intersects_polygon,
     point_in_any_polygon,
     point_in_polygon,
 )
 from src.utils.logger import get_logger
 
 if TYPE_CHECKING:
+    from src.services.package_counter_store import PackageCounterStore
     from src.services.people_counter_store import PeopleCounterStore
     from src.services.roi_people_counter_store import RoiPeopleCounterStore
     from src.services.roi_timer_store import RoiTimerStore
@@ -39,6 +41,8 @@ log = get_logger()
 
 MAX_STREAM_WIDTH = 2560
 MAX_STREAM_HEIGHT = 1440
+WORKER_CATEGORIES = frozenset({"face", "person", "head"})
+PACKAGE_CATEGORIES = frozenset({"package", "label"})
 
 
 @dataclass
@@ -64,6 +68,10 @@ class FaceStreamerConfig:
     people_zone_enabled: bool = False
     people_zone_polygon: list[tuple[float, float]] = field(default_factory=list)
     people_zone_max_workers: int = 3
+    package_detection_enabled: bool = False
+    package_det_conf: float = 0.25
+    package_det_imgsz: int = 960
+    package_count_dwell_sec: float = 1.0
 
 
 class FaceAnnotatedStreamer:
@@ -75,9 +83,11 @@ class FaceAnnotatedStreamer:
         engine: FrOnnxEngine,
         face_store: FaceEmbeddingStore,
         person_engine: PersonDetector | None = None,
+        package_engine: PersonDetector | None = None,
         roi_timer_store: "RoiTimerStore | None" = None,
         people_counter_store: "PeopleCounterStore | None" = None,
         roi_people_counter_store: "RoiPeopleCounterStore | None" = None,
+        package_counter_store: "PackageCounterStore | None" = None,
         roi_switch_seconds: float = 60.0,
         roi_reset_grace_seconds: float = 7.0,
     ) -> None:
@@ -85,9 +95,11 @@ class FaceAnnotatedStreamer:
         self.engine = engine
         self.face_store = face_store
         self.person_engine = person_engine
+        self.package_engine = package_engine
         self.roi_timer_store = roi_timer_store
         self.people_counter_store = people_counter_store
         self.roi_people_counter_store = roi_people_counter_store
+        self.package_counter_store = package_counter_store
         self.roi_switch_seconds = roi_switch_seconds
         self.roi_reset_grace_seconds = roi_reset_grace_seconds
 
@@ -111,6 +123,10 @@ class FaceAnnotatedStreamer:
             "publish_url": config.publish_url,
             "faces_count": 0,
             "workers_count": 0,
+            "packages_count": 0,
+            "labels_count": 0,
+            "packed_today": 0,
+            "package_detection_enabled": config.package_detection_enabled,
             "enrolled_faces": face_store.count,
             "infer_fps": 0.0,
             "encode_fps": 0.0,
@@ -173,6 +189,25 @@ class FaceAnnotatedStreamer:
             [None] * len(result.boxes),
         )
 
+    def _run_package_inference(
+        self, rgb: np.ndarray
+    ) -> tuple[list[list[int]], list[float], list[str], list[str | None], list[float | None]]:
+        if not self.config.package_detection_enabled or self.package_engine is None:
+            return [], [], [], [], []
+        result = self.package_engine.predict(
+            [rgb],
+            conf=self.config.package_det_conf,
+            nms=self.config.det_nms,
+            imgsz=self.config.package_det_imgsz,
+        )[0]
+        return (
+            result.boxes,
+            result.scores,
+            result.categories or [],
+            [None] * len(result.boxes),
+            [None] * len(result.boxes),
+        )
+
     def _run_inference(self, frame_bgr: np.ndarray) -> None:
         rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
         mode = self.config.detection_mode
@@ -198,6 +233,14 @@ class FaceAnnotatedStreamer:
             names.extend(pn)
             distances.extend(pd)
 
+        if self.config.package_detection_enabled:
+            pkg_b, pkg_s, pkg_c, pkg_n, pkg_d = self._run_package_inference(rgb)
+            boxes.extend(pkg_b)
+            scores.extend(pkg_s)
+            categories.extend(pkg_c)
+            names.extend(pkg_n)
+            distances.extend(pkg_d)
+
         self.metrics["enrolled_faces"] = self.face_store.count
         self._update_roi_timers(
             boxes=boxes,
@@ -207,6 +250,12 @@ class FaceAnnotatedStreamer:
             height=frame_bgr.shape[0],
         )
         self._update_people_counter(
+            boxes=boxes,
+            categories=categories,
+            width=frame_bgr.shape[1],
+            height=frame_bgr.shape[0],
+        )
+        self._update_package_counter(
             boxes=boxes,
             categories=categories,
             width=frame_bgr.shape[1],
@@ -228,6 +277,100 @@ class FaceAnnotatedStreamer:
         self._last_distances = distances
         self.metrics["workers_count"] = count_workers(boxes, categories)
         self.metrics["faces_count"] = self.metrics["workers_count"]
+        self.metrics["packages_count"] = sum(
+            1 for c in categories if (c or "").lower() == "package"
+        )
+        self.metrics["labels_count"] = sum(
+            1 for c in categories if (c or "").lower() == "label"
+        )
+        self.metrics["package_detection_enabled"] = self.config.package_detection_enabled
+        if self.package_counter_store is not None:
+            self.metrics["packed_today"] = self.package_counter_store.get_total_today(
+                self.config.camera_id
+            )
+
+    def _packages_per_roi(
+        self,
+        boxes: list[list[int]],
+        categories: list[str],
+        width: int,
+        height: int,
+    ) -> list[int]:
+        """Число детекций package внутри каждого ROI (пересечение bbox)."""
+        n = len(self.config.roi_polygons)
+        counts = [0] * n
+        if width <= 0 or height <= 0 or n == 0:
+            return counts
+        for box, category in zip(boxes, categories):
+            if (category or "").lower() != "package":
+                continue
+            matching = [
+                idx
+                for idx, poly in enumerate(self.config.roi_polygons)
+                if box_intersects_polygon(box, poly, width, height)
+            ]
+            if not matching:
+                continue
+            if len(matching) == 1:
+                counts[matching[0]] += 1
+                continue
+            cx = ((box[0] + box[2]) / 2.0) / width
+            cy = ((box[1] + box[3]) / 2.0) / height
+            sub_polys = [self.config.roi_polygons[i] for i in matching]
+            rel = assign_detection_to_roi((cx, cy), sub_polys)
+            counts[matching[rel if rel is not None else 0]] += 1
+        return counts
+
+    def _update_package_counter(
+        self,
+        boxes: list[list[int]],
+        categories: list[str],
+        width: int,
+        height: int,
+    ) -> None:
+        if (
+            self.package_counter_store is None
+            or not self.config.package_detection_enabled
+            or not self.config.roi_enabled
+            or not self.config.roi_polygons
+            or width <= 0
+            or height <= 0
+        ):
+            return
+
+        if len(self.config.roi_keys) != len(self.config.roi_polygons):
+            if self.roi_timer_store is None:
+                return
+            from src.utils.roi_helpers import RoiPolygonData, default_roi_name
+
+            self.config.roi_keys = self.roi_timer_store.sync_camera_rois(
+                self.config.camera_id,
+                [
+                    RoiPolygonData(
+                        points=poly,
+                        name=default_roi_name(idx),
+                    )
+                    for idx, poly in enumerate(self.config.roi_polygons, start=1)
+                ],
+            )
+        if not self.config.roi_keys:
+            return
+
+        self.package_counter_store.sync_camera_rois(
+            self.config.camera_id, self.config.roi_keys
+        )
+        package_counts = self._packages_per_roi(boxes, categories, width, height)
+        dwell = max(0.1, float(self.config.package_count_dwell_sec))
+        for roi_key, count in zip(self.config.roi_keys, package_counts):
+            self.package_counter_store.tick(
+                camera_id=self.config.camera_id,
+                roi_key=roi_key,
+                packages_in_zone=count,
+                dwell_seconds=dwell,
+            )
+        self.metrics["packed_today"] = self.package_counter_store.get_total_today(
+            self.config.camera_id
+        )
 
     def _people_zone_track_centers(
         self,
@@ -316,7 +459,20 @@ class FaceAnnotatedStreamer:
         fc: list[str] = []
         fn: list[str | None] = []
         fd: list[float | None] = []
+        pkg_boxes: list[list[int]] = []
+        pkg_scores: list[float] = []
+        pkg_categories: list[str] = []
+        pkg_names: list[str | None] = []
+        pkg_distances: list[float | None] = []
         for box, score, category, name, dist in zip(boxes, scores, categories, names, distances):
+            cat = (category or "").lower()
+            if cat in PACKAGE_CATEGORIES:
+                pkg_boxes.append(box)
+                pkg_scores.append(score)
+                pkg_categories.append(category)
+                pkg_names.append(name)
+                pkg_distances.append(dist)
+                continue
             cx = ((box[0] + box[2]) / 2.0) / width
             cy = ((box[1] + box[3]) / 2.0) / height
             if point_in_any_polygon((cx, cy), self.config.roi_polygons):
@@ -325,7 +481,7 @@ class FaceAnnotatedStreamer:
                 fc.append(category)
                 fn.append(name)
                 fd.append(dist)
-        return fb, fs, fc, fn, fd
+        return fb + pkg_boxes, fs + pkg_scores, fc + pkg_categories, fn + pkg_names, fd + pkg_distances
 
     def _workers_per_roi(
         self,
@@ -439,6 +595,10 @@ class FaceAnnotatedStreamer:
         self.config.people_zone_polygon = list(polygon) if len(polygon) >= 3 else []
         self.config.people_zone_max_workers = min(3, max(1, int(max_workers or 3)))
         self._people_tracks = {}
+
+    def update_package_detection(self, enabled: bool) -> None:
+        self.config.package_detection_enabled = enabled
+        self.metrics["package_detection_enabled"] = enabled
 
     def _annotate(self, frame_bgr: np.ndarray) -> np.ndarray:
         out = frame_bgr

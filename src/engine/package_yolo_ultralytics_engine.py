@@ -60,7 +60,7 @@ class PackageYoloUltralyticsEngine:
         return "cpu"
 
     def predict(
-        self, imgs: List[np.ndarray], conf: float = 0.25, nms: float = 0.45
+        self, imgs: List[np.ndarray], conf: float = 0.25, nms: float = 0.45, imgsz: int = 960
     ) -> List[YoloResultSchema]:
         if self.model is None:
             raise RuntimeError("PackageYoloUltralyticsEngine.setup() was not called")
@@ -72,6 +72,7 @@ class PackageYoloUltralyticsEngine:
                 bgr,
                 conf=conf,
                 iou=nms,
+                imgsz=imgsz,
                 verbose=False,
                 device=self.device,
             )[0]

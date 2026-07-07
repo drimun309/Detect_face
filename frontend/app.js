@@ -1,4 +1,4 @@
-/** i18n: ru (default) / en */
+﻿/** i18n: ru (default) / en */
 (function (global) {
   const STRINGS = {
     ru: {
@@ -75,6 +75,15 @@
       watchMaxQualityOn: "Макс. качество: вкл",
       watchMaxQualityOff: "Макс. качество: выкл",
       watchMaxQualityHint: "Переключение разрешения…",
+      streamQuality: "Качество",
+      streamQualityGlobal: "По умолчанию (настройки)",
+      cameraStreamQuality: "Качество детекции",
+      cameraStreamQualityHint:
+        "Разрешение annotated-потока для этой камеры. «По умолчанию» — из глобальных настроек.",
+      streamQualityHint: "Смена разрешения…",
+      packageDetectionOff: "Пакеты: выкл.",
+      packageDetectionOn: "Пакеты: вкл.",
+      packageDetectionHint: "Переключение…",
       delete: "Удалить",
       saveCamera: "Сохранить камеру",
       enabled: "Включена",
@@ -324,6 +333,15 @@
       watchMaxQualityOn: "Max quality: on",
       watchMaxQualityOff: "Max quality: off",
       watchMaxQualityHint: "Switching resolution…",
+      streamQuality: "Quality",
+      streamQualityGlobal: "Default (settings)",
+      cameraStreamQuality: "Detection quality",
+      cameraStreamQualityHint:
+        "Annotated stream resolution for this camera. Default uses global settings.",
+      streamQualityHint: "Changing resolution…",
+      packageDetectionOff: "Packages: off",
+      packageDetectionOn: "Packages: on",
+      packageDetectionHint: "Switching…",
       delete: "Delete",
       saveCamera: "Save camera",
       enabled: "Enabled",
@@ -811,33 +829,170 @@
   let currentCameraId = null;
   let currentCameraName = "";
   let currentUseAnnotated = false;
-  let streamMaxQuality = false;
+  let currentStreamQualityPreset = "global";
+  let packageDetectionEnabled = false;
   let recordingActive = false;
 
-  function updateMaxQualityBtn() {
-    const btn = document.getElementById("stream-max-quality-btn");
+  function cameraQualityPreset(cam) {
+    if (!cam || cam.stream_width == null || cam.stream_height == null) return "global";
+    return String(cam.stream_width) + "x" + String(cam.stream_height);
+  }
+
+  function applyStreamQualityPreset(preset, effectiveW, effectiveH) {
+    const select = document.getElementById("stream-quality-select");
+    const label = document.querySelector(".stream-quality-label");
     const player = document.querySelector(".stream-player-wrap");
     const dialog = document.querySelector(".stream-modal-dialog");
-    if (btn) {
-      const show = currentUseAnnotated && !!currentCameraId;
-      btn.classList.toggle("hidden", !show);
-      btn.classList.toggle("btn-primary", streamMaxQuality);
-      btn.classList.toggle("btn-secondary", !streamMaxQuality);
-      btn.textContent = streamMaxQuality ? t("watchMaxQualityOn") : t("watchMaxQuality");
-      if (!btn.disabled) btn.disabled = false;
+    const show = currentUseAnnotated && !!currentCameraId;
+    if (select) {
+      select.classList.toggle("hidden", !show);
+      if (show) select.value = preset || "global";
+      select.disabled = false;
     }
-    if (player) player.classList.toggle("stream-max-quality", streamMaxQuality);
-    if (dialog) dialog.classList.toggle("stream-max-quality", streamMaxQuality);
-    if (streamMaxQuality) window.dispatchEvent(new Event("resize"));
+    if (label) label.classList.toggle("hidden", !show);
+    const isLarge =
+      preset === "2560x1440" || (Number(effectiveW) >= 2560 && Number(effectiveH) >= 1440);
+    if (player) player.classList.toggle("stream-max-quality", isLarge);
+    if (dialog) dialog.classList.toggle("stream-max-quality", isLarge);
+    if (isLarge) window.dispatchEvent(new Event("resize"));
+  }
+
+  function updateMaxQualityBtn() {
+    applyStreamQualityPreset(currentStreamQualityPreset);
+  }
+
+  async function loadStreamQualityState() {
+    if (!currentCameraId || !currentUseAnnotated) {
+      currentStreamQualityPreset = "global";
+      applyStreamQualityPreset("global");
+      return;
+    }
+    try {
+      const data = await request(
+        API + "/cameras/" + currentCameraId + "/stream/quality"
+      );
+      currentStreamQualityPreset = (data && data.preset) || "global";
+      if (streamMeta && data.effective_width && data.effective_height) {
+        streamMeta.textContent =
+          currentStreamName +
+          " · " +
+          data.effective_width +
+          "×" +
+          data.effective_height;
+      }
+      applyStreamQualityPreset(
+        currentStreamQualityPreset,
+        data.effective_width,
+        data.effective_height
+      );
+    } catch (_) {
+      applyStreamQualityPreset("global");
+    }
+  }
+
+  async function setCameraStreamQuality(preset) {
+    if (!currentCameraId || !currentUseAnnotated) return;
+    const select = document.getElementById("stream-quality-select");
+    if (select) select.disabled = true;
+    try {
+      const data = await request(
+        API + "/cameras/" + currentCameraId + "/stream/quality",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ preset: preset || "global" }),
+        }
+      );
+      currentStreamQualityPreset = (data && data.preset) || preset || "global";
+      if (streamMeta && data.effective_width && data.effective_height) {
+        streamMeta.textContent =
+          currentStreamName +
+          " · " +
+          data.effective_width +
+          "×" +
+          data.effective_height;
+      }
+      isConnected = false;
+      shouldReconnect = true;
+      reconnectAttempt = 0;
+      setTimeout(function () {
+        connectMp4();
+      }, 800);
+      applyStreamQualityPreset(
+        currentStreamQualityPreset,
+        data.effective_width,
+        data.effective_height
+      );
+    } catch (err) {
+      setStatus(err.message, true);
+      if (select) select.value = currentStreamQualityPreset;
+    } finally {
+      if (select) select.disabled = false;
+    }
+  }
+
+  function updatePackageDetectionBtn() {
+    const btn = document.getElementById("package-detection-btn");
+    if (!btn) return;
+    const show = currentUseAnnotated && !!currentCameraId;
+    btn.classList.toggle("hidden", !show);
+    btn.classList.toggle("btn-primary", packageDetectionEnabled);
+    btn.classList.toggle("btn-secondary", !packageDetectionEnabled);
+    btn.textContent = packageDetectionEnabled
+      ? t("packageDetectionOn")
+      : t("packageDetectionOff");
+  }
+
+  async function loadPackageDetectionState() {
+    if (!currentCameraId || !currentUseAnnotated) {
+      packageDetectionEnabled = false;
+      updatePackageDetectionBtn();
+      return;
+    }
+    try {
+      const data = await request(
+        API + "/cameras/" + currentCameraId + "/package-detection"
+      );
+      packageDetectionEnabled = !!(data && data.package_detection_enabled);
+    } catch (_) {
+      packageDetectionEnabled = false;
+    }
+    updatePackageDetectionBtn();
+  }
+
+  async function setPackageDetection(enabled) {
+    if (!currentCameraId || !currentUseAnnotated) return;
+    const btn = document.getElementById("package-detection-btn");
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = t("packageDetectionHint");
+    }
+    try {
+      const data = await request(
+        API + "/cameras/" + currentCameraId + "/package-detection",
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ enabled: !!enabled }),
+        }
+      );
+      packageDetectionEnabled = !!(data && data.package_detection_enabled);
+      isConnected = false;
+      shouldReconnect = true;
+      reconnectAttempt = 0;
+      setTimeout(function () {
+        connectMp4();
+      }, 800);
+    } catch (err) {
+      setStatus(err.message, true);
+    } finally {
+      if (btn) btn.disabled = false;
+      updatePackageDetectionBtn();
+    }
   }
 
   async function setStreamMaxQuality(enabled) {
     if (!currentCameraId || !currentUseAnnotated) return;
-    const btn = document.getElementById("stream-max-quality-btn");
-    if (btn) {
-      btn.disabled = true;
-      btn.textContent = t("watchMaxQualityHint");
-    }
     try {
       const data = await request(
         API + "/cameras/" + currentCameraId + "/stream/quality",
@@ -847,15 +1002,19 @@
           body: JSON.stringify({ max_quality: !!enabled }),
         }
       );
-      streamMaxQuality = !!data.max_quality;
-      if (streamMeta && data.stream_width && data.stream_height) {
+      if (streamMeta && data.effective_width && data.effective_height) {
         streamMeta.textContent =
           currentStreamName +
           " · " +
-          data.stream_width +
+          data.effective_width +
           "×" +
-          data.stream_height;
+          data.effective_height;
       }
+      applyStreamQualityPreset(
+        currentStreamQualityPreset,
+        data.effective_width,
+        data.effective_height
+      );
       isConnected = false;
       shouldReconnect = true;
       reconnectAttempt = 0;
@@ -864,8 +1023,6 @@
       }, 600);
     } catch (err) {
       setStatus(err.message, true);
-    } finally {
-      updateMaxQualityBtn();
     }
   }
 
@@ -1130,7 +1287,8 @@
 
   function cameraPayloadFromForm(fd) {
     const deptRaw = fd.get("department_id");
-    return {
+    const qPreset = String(fd.get("stream_quality") || "global");
+    const payload = {
       name: String(fd.get("name") || "").trim(),
       ip: String(fd.get("ip") || "").trim(),
       port: Number(fd.get("port") || 554),
@@ -1141,6 +1299,15 @@
       enabled: fd.get("enabled") === "on",
       department_id: deptRaw ? Number(deptRaw) : null,
     };
+    if (qPreset === "global") {
+      payload.stream_width = null;
+      payload.stream_height = null;
+    } else if (qPreset.indexOf("x") > 0) {
+      const parts = qPreset.split("x");
+      payload.stream_width = Number(parts[0]);
+      payload.stream_height = Number(parts[1]);
+    }
+    return payload;
   }
 
   function openDepartmentModal(dept) {
@@ -1218,6 +1385,8 @@
     form.password.value = "";
     form.path.value = cam.path;
     form.enabled.checked = !!cam.enabled;
+    const qualitySelect = document.getElementById("camera-stream-quality");
+    if (qualitySelect) qualitySelect.value = cameraQualityPreset(cam);
     if (cameraDepartmentSelect) {
       cameraDepartmentSelect.value = cam.department_id ? String(cam.department_id) : "";
     }
@@ -1232,6 +1401,8 @@
     form.port.value = "554";
     form.path.value = "/Streaming/Channels/101";
     form.enabled.checked = true;
+    const qualitySelect = document.getElementById("camera-stream-quality");
+    if (qualitySelect) qualitySelect.value = "global";
     setCameraFormMode(null);
     if (cameraFormMsg) cameraFormMsg.textContent = "";
   }
@@ -1458,8 +1629,10 @@
     streamModal.classList.remove("hidden");
     streamModal.setAttribute("aria-hidden", "false");
     document.body.style.overflow = "hidden";
-    streamMaxQuality = false;
+    currentStreamQualityPreset = "global";
     updateMaxQualityBtn();
+    loadPackageDetectionState();
+    loadStreamQualityState();
     window.dispatchEvent(new Event("resize"));
   }
 
@@ -1518,37 +1691,35 @@
 
   async function syncStreamQualityFromStatus(cameraId) {
     try {
-      const streams = await request(API + "/streams/status");
-      const item = (streams.items || []).find(function (s) {
-        return String(s.camera_id) === String(cameraId);
-      });
-      if (!item) return;
-      streamMaxQuality = !!item.max_quality;
-      if (streamMeta && item.stream_width && item.stream_height) {
+      const data = await request(API + "/cameras/" + cameraId + "/stream/quality");
+      if (!data) return;
+      currentStreamQualityPreset = data.preset || "global";
+      if (streamMeta && data.effective_width && data.effective_height) {
         streamMeta.textContent =
-          currentStreamName + " · " + item.stream_width + "×" + item.stream_height;
+          currentStreamName +
+          " · " +
+          data.effective_width +
+          "×" +
+          data.effective_height;
       }
-      updateMaxQualityBtn();
+      applyStreamQualityPreset(
+        currentStreamQualityPreset,
+        data.effective_width,
+        data.effective_height
+      );
     } catch (_) {}
   }
 
   window.DF_syncStreamQuality = syncStreamQualityFromStatus;
 
   function closeStream() {
-    if (currentUseAnnotated && currentCameraId && streamMaxQuality) {
-      request(API + "/cameras/" + currentCameraId + "/stream/quality", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ max_quality: false }),
-      }).catch(function () {});
-    }
     cleanupPeer(false);
     if (window.DF_setStreamCameraId) window.DF_setStreamCameraId(null);
     currentStreamName = "";
     currentCameraId = null;
     currentCameraName = "";
     currentUseAnnotated = false;
-    streamMaxQuality = false;
+    currentStreamQualityPreset = "global";
     updateMaxQualityBtn();
     closeStreamModal();
     if (streamMeta) streamMeta.textContent = "";
@@ -1759,10 +1930,17 @@
   if (streamModalClose) streamModalClose.addEventListener("click", closeStream);
   if (streamModalBackdrop) streamModalBackdrop.addEventListener("click", closeStream);
 
-  const streamMaxQualityBtn = document.getElementById("stream-max-quality-btn");
-  if (streamMaxQualityBtn) {
-    streamMaxQualityBtn.addEventListener("click", function () {
-      setStreamMaxQuality(!streamMaxQuality);
+  const streamQualitySelect = document.getElementById("stream-quality-select");
+  if (streamQualitySelect) {
+    streamQualitySelect.addEventListener("change", function () {
+      setCameraStreamQuality(streamQualitySelect.value);
+    });
+  }
+
+  const packageDetectionBtn = document.getElementById("package-detection-btn");
+  if (packageDetectionBtn) {
+    packageDetectionBtn.addEventListener("click", function () {
+      setPackageDetection(!packageDetectionEnabled);
     });
   }
 

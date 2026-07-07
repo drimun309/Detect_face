@@ -320,6 +320,21 @@ th {
   margin-bottom: 10px;
 }
 
+.stream-quality-label {
+  font-size: 0.85rem;
+  color: var(--text-muted, #8a8f98);
+  margin-right: 0.15rem;
+}
+
+.stream-quality-select {
+  min-width: 11rem;
+  max-width: 14rem;
+}
+
+.stream-quality-select.hidden {
+  display: none;
+}
+
 .roi-status {
   font-size: 13px;
   color: #888;

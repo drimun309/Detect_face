@@ -41,6 +41,7 @@ def main_api(cfg: Configs) -> None:
     from src.schema.department_sql_schema import DepartmentSqlSchema  # noqa: F401
     from src.schema.fr_schema import FacesFrSqlSchema  # noqa: F401
     from src.services.camera_store import CameraStore
+    from src.services.package_detection_service import init_package_detection_service
     from src.services.settings_store import SettingsStore
     from src.streaming.stream_manager import init_stream_manager
 
@@ -62,6 +63,7 @@ def main_api(cfg: Configs) -> None:
     department_store = DepartmentStore(pg)
     camera_store = CameraStore(pg)
     settings_store = SettingsStore(cfg.DETECTION_SETTINGS_PATH, cfg)
+    init_package_detection_service(cfg.PACKAGE_DET_MODEL_PATH, cfg.FR_PROVIDER)
     stream_manager = init_stream_manager(cfg, camera_store=camera_store)
     stream_manager.apply_detection_settings(settings_store.get())
     from src.services.go2rtc_sync import sync_go2rtc_config
