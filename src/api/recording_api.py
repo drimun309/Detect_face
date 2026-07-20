@@ -7,6 +7,10 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 
+from src.schema.sealer_stats_schema import (
+    SealerDailyRangeResponse,
+    SealerStatDatesResponse,
+)
 from src.schema.people_zone_stats_schema import (
     PeopleZoneDailyRangeResponse,
     PeopleZoneStatDatesResponse,
@@ -102,6 +106,24 @@ class RecordingApi:
             return True
         enabled, polygon, _max_workers = store.get_people_zone_runtime(camera_id)
         return enabled and len(polygon) >= 3
+
+    def _sealer_counter_store(self):
+        try:
+            return get_stream_manager().sealer_counter_store
+        except RuntimeError:
+            return None
+
+    def _camera_has_sealer(self, camera_id: int) -> bool:
+        store = self.camera_store
+        if store is None:
+            try:
+                store = get_stream_manager().camera_store
+            except RuntimeError:
+                store = None
+        if store is None:
+            return False
+        enabled, *_rest = store.get_sealer_roi_runtime(camera_id)
+        return bool(enabled)
 
     def setup(self) -> None:
         @self.router.get("/settings/recording", response_model=RecordingSettingsSchema)
@@ -295,6 +317,47 @@ class RecordingApi:
                 return PeopleZoneTimelineResponse(camera_id=camera_id, date=date)
             raw = store.get_timeline(camera_id, date)
             return PeopleZoneTimelineResponse(**raw)
+
+        @self.router.get(
+            "/sealer-stats/{camera_id}/dates",
+            response_model=SealerStatDatesResponse,
+        )
+        async def get_sealer_stat_dates(camera_id: int) -> SealerStatDatesResponse:
+            if not self._camera_has_sealer(camera_id):
+                return SealerStatDatesResponse(camera_id=camera_id, dates=[])
+            store = self._sealer_counter_store()
+            if store is None:
+                return SealerStatDatesResponse(camera_id=camera_id, dates=[])
+            return SealerStatDatesResponse(**store.get_stat_dates_meta(camera_id))
+
+        @self.router.get(
+            "/sealer-stats/{camera_id}/daily",
+            response_model=SealerDailyRangeResponse,
+        )
+        async def get_sealer_daily_stats(
+            camera_id: int,
+            from_date: str = Query(..., alias="from", description="YYYY-MM-DD"),
+            to_date: str = Query(..., alias="to", description="YYYY-MM-DD"),
+        ) -> SealerDailyRangeResponse:
+            if not self._camera_has_sealer(camera_id):
+                return SealerDailyRangeResponse(
+                    camera_id=camera_id,
+                    from_date=from_date,
+                    to_date=to_date,
+                    timezone="UTC",
+                    days=[],
+                )
+            store = self._sealer_counter_store()
+            if store is None:
+                return SealerDailyRangeResponse(
+                    camera_id=camera_id,
+                    from_date=from_date,
+                    to_date=to_date,
+                    timezone="UTC",
+                    days=[],
+                )
+            raw = store.get_daily_stats_range(camera_id, from_date, to_date)
+            return SealerDailyRangeResponse(**raw)
 
         @self.router.get(
             "/recordings/{camera_id}/{camera_name}/{date}/timeline",

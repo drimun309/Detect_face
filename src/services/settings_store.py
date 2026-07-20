@@ -16,6 +16,8 @@ class SettingsStore:
             detection_mode="face",
             person_det_model=infer_person_model_id(cfg.PERSON_DET_ENGINE_PATH),
             crowdhuman_det_type="both",
+            person_tracker="bytetrack",
+            person_track_buffer=45,
             fr_det_conf=cfg.FR_DET_CONF,
             fr_det_nms=cfg.FR_DET_NMS,
             fr_distance=cfg.FR_DISTANCE,

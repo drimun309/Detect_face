@@ -13,6 +13,7 @@ from sqlmodel import select
 from src.db.pg_db import PgSyncDb
 from src.schema.camera_schema import CameraCreateSchema, CameraSchema, CameraUpdateSchema
 from src.schema.camera_sql_schema import CameraSqlSchema
+from src.schema.sealer_roi_schema import SealerRoiConfig, SealerRoiResponse
 from src.schema.people_zone_schema import (
     PeopleZoneConfig,
     PeopleZoneResponse,
@@ -45,6 +46,7 @@ class CameraStore:
         self._ensure_people_zone_columns()
         self._ensure_department_column()
         self._ensure_package_detection_column()
+        self._ensure_sealer_roi_columns()
         self._ensure_stream_quality_columns()
         self._ensure_roi_timer_table()
         self._migrate_legacy_json_once()
@@ -113,6 +115,25 @@ class CameraStore:
         except SQLAlchemyError as exc:
             self._rollback()
             log.warning(f"package_detection column migration: {exc}")
+
+    def _ensure_sealer_roi_columns(self) -> None:
+        try:
+            self.pg.session.exec(
+                text(
+                    "ALTER TABLE cameras ADD COLUMN IF NOT EXISTS "
+                    "sealer_roi_enabled BOOLEAN DEFAULT FALSE"
+                )
+            )
+            self.pg.session.exec(
+                text(
+                    "ALTER TABLE cameras ADD COLUMN IF NOT EXISTS "
+                    "sealer_roi_config TEXT DEFAULT '{}'"
+                )
+            )
+            self.pg.session.commit()
+        except SQLAlchemyError as exc:
+            self._rollback()
+            log.warning(f"sealer_roi columns migration: {exc}")
 
     def _ensure_stream_quality_columns(self) -> None:
         try:
@@ -365,6 +386,84 @@ class CameraStore:
             return False, [], 3
         polygon = [(p.x, p.y) for p in cfg.polygon]
         return True, polygon, min(3, max(1, cfg.max_workers))
+
+    def _parse_sealer_roi_config(self, row: CameraSqlSchema) -> SealerRoiConfig:
+        raw = getattr(row, "sealer_roi_config", "{}") or "{}"
+        try:
+            data = json.loads(raw) if isinstance(raw, str) else raw
+            if not isinstance(data, dict):
+                data = {}
+        except (json.JSONDecodeError, TypeError):
+            data = {}
+        data["enabled"] = bool(getattr(row, "sealer_roi_enabled", False))
+        try:
+            return SealerRoiConfig(**data)
+        except ValueError:
+            return SealerRoiConfig(enabled=False)
+
+    def get_sealer_roi(self, camera_id: int) -> Optional[SealerRoiResponse]:
+        row = self.pg.session.get(CameraSqlSchema, camera_id)
+        if not row:
+            return None
+        return SealerRoiResponse(**self._parse_sealer_roi_config(row).model_dump())
+
+    def update_sealer_roi(
+        self, camera_id: int, payload: SealerRoiConfig
+    ) -> Optional[SealerRoiResponse]:
+        enabled = bool(
+            payload.enabled
+            and payload.w > 0
+            and payload.h > 0
+        )
+        cfg = SealerRoiConfig(
+            enabled=enabled,
+            x=max(0.0, min(1.0, float(payload.x))),
+            y=max(0.0, min(1.0, float(payload.y))),
+            w=max(0.0, min(1.0, float(payload.w))),
+            h=max(0.0, min(1.0, float(payload.h))),
+            spike_thresh=float(payload.spike_thresh),
+            rest_thresh=float(payload.rest_thresh),
+            cooldown_frames=int(payload.cooldown_frames),
+        )
+        with self._lock:
+            try:
+                row = self.pg.session.get(CameraSqlSchema, camera_id)
+                if not row:
+                    return None
+                row.sealer_roi_enabled = enabled
+                row.sealer_roi_config = json.dumps(
+                    cfg.model_dump(exclude={"enabled"}), ensure_ascii=False
+                )
+                self.pg.session.add(row)
+                self.pg.session.commit()
+                self.pg.session.refresh(row)
+            except SQLAlchemyError:
+                self._rollback()
+                raise
+        return self.get_sealer_roi(camera_id)
+
+    def delete_sealer_roi(self, camera_id: int) -> Optional[SealerRoiResponse]:
+        return self.update_sealer_roi(camera_id, SealerRoiConfig(enabled=False))
+
+    def get_sealer_roi_runtime(
+        self, camera_id: int
+    ) -> tuple[bool, float, float, float, float, float, float, int]:
+        row = self.pg.session.get(CameraSqlSchema, camera_id)
+        if not row:
+            return False, 0.0, 0.0, 0.0, 0.0, 80.0, -50.0, 8
+        cfg = self._parse_sealer_roi_config(row)
+        if not cfg.enabled or cfg.w <= 0 or cfg.h <= 0:
+            return False, 0.0, 0.0, 0.0, 0.0, cfg.spike_thresh, cfg.rest_thresh, cfg.cooldown_frames
+        return (
+            True,
+            cfg.x,
+            cfg.y,
+            cfg.w,
+            cfg.h,
+            cfg.spike_thresh,
+            cfg.rest_thresh,
+            cfg.cooldown_frames,
+        )
 
     def set_package_detection(
         self, camera_id: int, enabled: bool

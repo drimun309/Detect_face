@@ -172,6 +172,7 @@ logs/
 !assets/yolo26n.onnx
 !assets/yolov8s.pt
 !assets/package_label_stage2.pt
+!assets/best_pose.pt
 assets/crowdhuman_yolov5m.pt
 
 # runtime config (камеры, пароли RTSP)

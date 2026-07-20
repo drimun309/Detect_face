@@ -21,19 +21,36 @@ from src.utils.face_draw import (
     draw_detections,
     draw_people_zone_badge,
     draw_roi_polygons,
+    draw_rod_pose_overlay,
+    draw_sealer_cycle_badge,
+    draw_sealer_roi_rect,
     draw_worker_count_badge,
 )
+from src.utils.sealer_handle_detector import (
+    DEFAULT_MIN_HYSTERESIS,
+    DEFAULT_REST_THRESHOLD,
+    DEFAULT_SPIKE_THRESHOLD,
+    FixedRoiDetector,
+    SealerMotionDetector,
+    norm_rect_to_pixels,
+    probe_thresholds_from_scores,
+)
+from src.utils.person_tracker import PersonTracker
+from src.utils.rod_metrics import RodTracker
 from src.utils.roi_helpers import (
     assign_detection_to_roi,
     box_intersects_polygon,
+    count_roi_workers,
     point_in_any_polygon,
     point_in_polygon,
 )
 from src.utils.logger import get_logger
 
 if TYPE_CHECKING:
+    from src.engine.rod_pose_engine import RodPoseEngine, RodPoseDetection
     from src.services.package_counter_store import PackageCounterStore
     from src.services.people_counter_store import PeopleCounterStore
+    from src.services.rod_counter_store import RodCounterStore
     from src.services.roi_people_counter_store import RoiPeopleCounterStore
     from src.services.roi_timer_store import RoiTimerStore
 
@@ -72,6 +89,20 @@ class FaceStreamerConfig:
     package_det_conf: float = 0.25
     package_det_imgsz: int = 960
     package_count_dwell_sec: float = 1.0
+    rod_pose_enabled: bool = False
+    rod_pose_conf: float = 0.25
+    rod_pose_imgsz: int = 640
+    sealer_roi_enabled: bool = False
+    sealer_roi_x: float = 0.0
+    sealer_roi_y: float = 0.0
+    sealer_roi_w: float = 0.0
+    sealer_roi_h: float = 0.0
+    sealer_roi_spike_thresh: float = DEFAULT_SPIKE_THRESHOLD
+    sealer_roi_rest_thresh: float = DEFAULT_REST_THRESHOLD
+    sealer_roi_cooldown_frames: int = 8
+    sealer_cycle_dwell_sec: float = 1.0
+    person_tracker: Literal["off", "bytetrack", "botsort", "sort"] = "bytetrack"
+    person_track_buffer: int = 45
 
 
 class FaceAnnotatedStreamer:
@@ -84,10 +115,13 @@ class FaceAnnotatedStreamer:
         face_store: FaceEmbeddingStore,
         person_engine: PersonDetector | None = None,
         package_engine: PersonDetector | None = None,
+        rod_pose_engine: "RodPoseEngine | None" = None,
         roi_timer_store: "RoiTimerStore | None" = None,
         people_counter_store: "PeopleCounterStore | None" = None,
         roi_people_counter_store: "RoiPeopleCounterStore | None" = None,
         package_counter_store: "PackageCounterStore | None" = None,
+        sealer_counter_store: "SealerCounterStore | None" = None,
+        rod_counter_store: "RodCounterStore | None" = None,
         roi_switch_seconds: float = 60.0,
         roi_reset_grace_seconds: float = 7.0,
     ) -> None:
@@ -96,10 +130,13 @@ class FaceAnnotatedStreamer:
         self.face_store = face_store
         self.person_engine = person_engine
         self.package_engine = package_engine
+        self.rod_pose_engine = rod_pose_engine
         self.roi_timer_store = roi_timer_store
         self.people_counter_store = people_counter_store
         self.roi_people_counter_store = roi_people_counter_store
         self.package_counter_store = package_counter_store
+        self.sealer_counter_store = sealer_counter_store
+        self.rod_counter_store = rod_counter_store
         self.roi_switch_seconds = roi_switch_seconds
         self.roi_reset_grace_seconds = roi_reset_grace_seconds
 
@@ -127,6 +164,13 @@ class FaceAnnotatedStreamer:
             "labels_count": 0,
             "packed_today": 0,
             "package_detection_enabled": config.package_detection_enabled,
+            "sealer_cycle_count": 0,
+            "sealer_activity": 0.0,
+            "sealer_state": "OPEN",
+            "rod_press_count": 0,
+            "rod_angle": 0.0,
+            "rod_ref_dA": 0.0,
+            "rod_armed": True,
             "enrolled_faces": face_store.count,
             "infer_fps": 0.0,
             "encode_fps": 0.0,
@@ -139,6 +183,55 @@ class FaceAnnotatedStreamer:
         self._source_size: tuple[int, int] | None = None
         self._people_tracks: dict[int, tuple[float, float, float]] = {}
         self._next_people_track_id = 1
+        self._sealer_detector: FixedRoiDetector | None = None
+        self._sealer_motion: SealerMotionDetector | None = None
+        self._sealer_frame_idx = 0
+        self._sealer_probe_scores: list[float] = []
+        self._sealer_probe_activities: list[float] = []
+        self._sealer_probe_done = False
+        self._sealer_initial_spike = DEFAULT_SPIKE_THRESHOLD
+        self._sealer_initial_rest = DEFAULT_REST_THRESHOLD
+        self._rod_tracker = RodTracker()
+        self._last_rod_pose: RodPoseDetection | None = None
+        self._rod_ref_dA = 0.0
+        self._person_tracker = PersonTracker(
+            tracker_type=config.person_tracker,
+            track_buffer=config.person_track_buffer,
+        )
+        self._sync_sealer_cycle_count_from_store()
+        self._sync_rod_press_count_from_store()
+
+    def set_person_tracker(
+        self,
+        tracker_type: str,
+        track_buffer: int | None = None,
+    ) -> None:
+        self.config.person_tracker = tracker_type  # type: ignore[assignment]
+        if track_buffer is not None:
+            self.config.person_track_buffer = int(track_buffer)
+        self._person_tracker.set_type(
+            tracker_type, track_buffer=self.config.person_track_buffer
+        )
+
+    def _sync_sealer_cycle_count_from_store(self) -> int:
+        """Подтянуть циклы за сегодняшнюю смену из БД (не обнулять при старте)."""
+        if self.sealer_counter_store is None:
+            return int(self.metrics.get("sealer_cycle_count", 0))
+        try:
+            cycles = int(
+                self.sealer_counter_store.get_cycles_today(self.config.camera_id)
+            )
+        except Exception:
+            cycles = int(self.metrics.get("sealer_cycle_count", 0))
+        self.metrics["sealer_cycle_count"] = cycles
+        return cycles
+
+    def _sync_rod_press_count_from_store(self) -> int:
+        """События палки = циклы запайщика (одна таблица sealer_*)."""
+        cycles = self._sync_sealer_cycle_count_from_store()
+        self.metrics["rod_press_count"] = cycles
+        self._rod_tracker.change_count = cycles
+        return cycles
 
     def _safe_url(self, url: str | None = None) -> str:
         url = url or self.config.rtsp_input_url
@@ -227,6 +320,28 @@ class FaceAnnotatedStreamer:
 
         if mode in ("person", "face_person"):
             pb, ps, pc, pn, pd = self._run_person_inference(rgb)
+            tracked = self._person_tracker.update(pb, ps, pc, frame_bgr)
+            if tracked is not None:
+                # Трекер только по телу; головы оставляем как сырые детекции
+                head_boxes: list[list[int]] = []
+                head_scores: list[float] = []
+                head_cats: list[str] = []
+                head_names: list[str | None] = []
+                head_dists: list[float | None] = []
+                for box, score, cat, name, dist in zip(pb, ps, pc, pn, pd):
+                    if (cat or "").lower() == "head":
+                        head_boxes.append(box)
+                        head_scores.append(score)
+                        head_cats.append(cat)
+                        head_names.append(name)
+                        head_dists.append(dist)
+                pb = [t.box for t in tracked] + head_boxes
+                ps = [t.score for t in tracked] + head_scores
+                pc = [t.category for t in tracked] + head_cats
+                pn = [
+                    f"t:{t.track_id}{'~' if t.predicted else ''}" for t in tracked
+                ] + head_names
+                pd = [None] * len(tracked) + head_dists
             boxes.extend(pb)
             scores.extend(ps)
             categories.extend(pc)
@@ -261,6 +376,8 @@ class FaceAnnotatedStreamer:
             width=frame_bgr.shape[1],
             height=frame_bgr.shape[0],
         )
+        self._update_sealer_cycle(frame_bgr)
+        self._update_rod_pose(frame_bgr)
         boxes, scores, categories, names, distances = self._filter_by_roi(
             boxes,
             scores,
@@ -371,6 +488,169 @@ class FaceAnnotatedStreamer:
         self.metrics["packed_today"] = self.package_counter_store.get_total_today(
             self.config.camera_id
         )
+
+    def _normalize_sealer_thresholds(
+        self, spike: float, rest: float
+    ) -> tuple[float, float]:
+        spike = max(float(spike), DEFAULT_SPIKE_THRESHOLD)
+        rest = float(rest)
+        if rest > DEFAULT_REST_THRESHOLD:
+            rest = DEFAULT_REST_THRESHOLD
+        if spike - rest < DEFAULT_MIN_HYSTERESIS:
+            rest = spike - DEFAULT_MIN_HYSTERESIS
+        return spike, rest
+
+    def _reset_sealer_runtime(self, reset_count: bool = True) -> None:
+        self._sealer_detector = None
+        self._sealer_motion = None
+        self._sealer_frame_idx = 0
+        self._sealer_probe_scores = []
+        self._sealer_probe_activities = []
+        self._sealer_probe_done = False
+        if reset_count:
+            self.metrics["sealer_activity"] = 0.0
+            self.metrics["sealer_state"] = "OPEN"
+        # Всегда берём счётчик за смену из БД — не обнуляем при старте/смене ROI
+        self._sync_sealer_cycle_count_from_store()
+
+    def _update_sealer_cycle(self, frame_bgr: np.ndarray) -> None:
+        if not self.config.sealer_roi_enabled:
+            return
+        if self.config.sealer_roi_w <= 0 or self.config.sealer_roi_h <= 0:
+            return
+
+        width = frame_bgr.shape[1]
+        height = frame_bgr.shape[0]
+        if width <= 0 or height <= 0:
+            return
+
+        roi_px = norm_rect_to_pixels(
+            self.config.sealer_roi_x,
+            self.config.sealer_roi_y,
+            self.config.sealer_roi_w,
+            self.config.sealer_roi_h,
+            width,
+            height,
+        )
+        try:
+            spike, rest = self._normalize_sealer_thresholds(
+                self.config.sealer_roi_spike_thresh,
+                self.config.sealer_roi_rest_thresh,
+            )
+            self.config.sealer_roi_spike_thresh = spike
+            self.config.sealer_roi_rest_thresh = rest
+
+            if self._sealer_detector is None:
+                self._sealer_initial_spike = spike
+                self._sealer_initial_rest = rest
+                self._sealer_detector = FixedRoiDetector(roi_px)
+                self._sealer_detector.set_reference(frame_bgr)
+                self._sealer_motion = SealerMotionDetector(
+                    spike_threshold=spike,
+                    rest_threshold=rest,
+                    cooldown_frames=self.config.sealer_roi_cooldown_frames,
+                    min_active_sec=self.config.sealer_cycle_dwell_sec,
+                )
+            elif self._sealer_detector.roi != roi_px:
+                self._reset_sealer_runtime(reset_count=False)
+                self._sealer_initial_spike = spike
+                self._sealer_initial_rest = rest
+                self._sealer_detector = FixedRoiDetector(roi_px)
+                self._sealer_detector.set_reference(frame_bgr)
+                self._sealer_motion = SealerMotionDetector(
+                    spike_threshold=spike,
+                    rest_threshold=rest,
+                    cooldown_frames=self.config.sealer_roi_cooldown_frames,
+                    min_active_sec=self.config.sealer_cycle_dwell_sec,
+                )
+
+            score = self._sealer_detector.measure(frame_bgr)
+            fired = self._sealer_motion.update(score, self._sealer_frame_idx)
+            activity = self._sealer_motion.activity
+            self._sealer_frame_idx += 1
+
+            if not self._sealer_probe_done and self._sealer_frame_idx <= 300:
+                self._sealer_probe_scores.append(score)
+                self._sealer_probe_activities.append(activity)
+                if self._sealer_frame_idx == 300 and self._sealer_motion is not None:
+                    probed_spike, probed_rest = probe_thresholds_from_scores(
+                        self._sealer_probe_scores,
+                        self._sealer_probe_activities,
+                    )
+                    spike, rest = self._normalize_sealer_thresholds(
+                        max(probed_spike, self._sealer_initial_spike),
+                        min(probed_rest, self._sealer_initial_rest),
+                    )
+                    self.config.sealer_roi_spike_thresh = spike
+                    self.config.sealer_roi_rest_thresh = rest
+                    self._sealer_motion.set_thresholds(spike, rest)
+                    self._sealer_probe_done = True
+
+            self._sealer_detector.adapt_reference_if_resting(
+                frame_bgr,
+                activity,
+                self.config.sealer_roi_rest_thresh,
+            )
+            self.metrics["sealer_activity"] = activity
+            self.metrics["sealer_state"] = self._sealer_motion.state
+            if fired:
+                cycles_today = 0
+                if self.sealer_counter_store is not None:
+                    cycles_today = self.sealer_counter_store.record_cycle(
+                        self.config.camera_id,
+                        activity=activity,
+                    )
+                else:
+                    cycles_today = int(self.metrics.get("sealer_cycle_count", 0)) + 1
+                self.metrics["sealer_cycle_count"] = cycles_today
+        except Exception as exc:
+            log.warning(f"Sealer cycle detector error cam={self.config.camera_id}: {exc}")
+
+    def _update_rod_pose(self, frame_bgr: np.ndarray) -> None:
+        if not self.config.rod_pose_enabled or self.rod_pose_engine is None:
+            self._last_rod_pose = None
+            return
+        try:
+            det = self.rod_pose_engine.predict(
+                frame_bgr,
+                conf=self.config.rod_pose_conf,
+                imgsz=self.config.rod_pose_imgsz,
+            )
+            if det is None:
+                return
+            upd = self._rod_tracker.update(det.angle_deg)
+            self._last_rod_pose = det
+            self._rod_ref_dA = upd.ref_dA
+            self.metrics["rod_angle"] = float(upd.ema_angle or det.angle_deg)
+            self.metrics["rod_ref_dA"] = upd.ref_dA
+            self.metrics["rod_armed"] = upd.armed
+            # activity для веб-статистики ROI ручки / запайщика
+            self.metrics["sealer_activity"] = float(upd.ref_dA)
+            self.metrics["sealer_state"] = "OPEN" if upd.armed else "CLOSED"
+            if upd.event_fired:
+                cycles_today = 0
+                if self.sealer_counter_store is not None:
+                    cycles_today = self.sealer_counter_store.record_cycle(
+                        self.config.camera_id,
+                        activity=float(upd.ref_dA),
+                    )
+                else:
+                    cycles_today = int(self.metrics.get("sealer_cycle_count", 0)) + 1
+                self.metrics["sealer_cycle_count"] = cycles_today
+                self.metrics["rod_press_count"] = cycles_today
+                self._rod_tracker.change_count = cycles_today
+            else:
+                cycles = int(self.metrics.get("sealer_cycle_count", upd.change_count))
+                self.metrics["rod_press_count"] = cycles
+        except Exception as exc:
+            log.warning(f"Rod pose error cam={self.config.camera_id}: {exc}")
+
+    def update_rod_pose(self, enabled: bool) -> None:
+        self.config.rod_pose_enabled = enabled
+        if not enabled:
+            self._last_rod_pose = None
+            self._rod_tracker.reset()
+            self._sync_rod_press_count_from_store()
 
     def _people_zone_track_centers(
         self,
@@ -490,20 +770,30 @@ class FaceAnnotatedStreamer:
         width: int,
         height: int,
     ) -> list[int]:
-        """Число детекций person/head внутри каждого ROI (макс. 2)."""
+        """Число людей в каждом ROI (макс. 2): тело + голова без дубля."""
         n = len(self.config.roi_polygons)
-        counts = [0] * n
         if width <= 0 or height <= 0 or n == 0:
-            return counts
+            return [0] * n
+
+        persons: list[list[list[int]]] = [[] for _ in range(n)]
+        heads: list[list[list[int]]] = [[] for _ in range(n)]
         for box, category in zip(boxes, categories):
-            if (category or "").lower() not in ("person", "head"):
+            cat = (category or "").lower()
+            if cat not in ("person", "head"):
                 continue
             cx = ((box[0] + box[2]) / 2.0) / width
             cy = ((box[1] + box[3]) / 2.0) / height
             idx = assign_detection_to_roi((cx, cy), self.config.roi_polygons)
-            if idx is not None:
-                counts[idx] += 1
-        return [min(2, c) for c in counts]
+            if idx is None:
+                continue
+            if cat == "person":
+                persons[idx].append(box)
+            else:
+                heads[idx].append(box)
+
+        return [
+            count_roi_workers(persons[i], heads[i], max_workers=2) for i in range(n)
+        ]
 
     def _update_roi_timers(
         self,
@@ -600,6 +890,29 @@ class FaceAnnotatedStreamer:
         self.config.package_detection_enabled = enabled
         self.metrics["package_detection_enabled"] = enabled
 
+    def update_sealer_roi(
+        self,
+        enabled: bool,
+        x: float,
+        y: float,
+        w: float,
+        h: float,
+        spike_thresh: float = DEFAULT_SPIKE_THRESHOLD,
+        rest_thresh: float = DEFAULT_REST_THRESHOLD,
+        cooldown_frames: int = 8,
+    ) -> None:
+        active = enabled and w > 0 and h > 0
+        spike, rest = self._normalize_sealer_thresholds(spike_thresh, rest_thresh)
+        self.config.sealer_roi_enabled = active
+        self.config.sealer_roi_x = x
+        self.config.sealer_roi_y = y
+        self.config.sealer_roi_w = w
+        self.config.sealer_roi_h = h
+        self.config.sealer_roi_spike_thresh = spike
+        self.config.sealer_roi_rest_thresh = rest
+        self.config.sealer_roi_cooldown_frames = cooldown_frames
+        self._reset_sealer_runtime()
+
     def _annotate(self, frame_bgr: np.ndarray) -> np.ndarray:
         out = frame_bgr
         if self.config.people_zone_enabled and self.config.people_zone_polygon:
@@ -625,6 +938,36 @@ class FaceAnnotatedStreamer:
                 int(self.metrics.get("people_zone_workers", 0)),
                 float(self.metrics.get("people_zone_person_seconds", 0.0)),
                 self.config.people_zone_max_workers,
+            )
+        if self.config.sealer_roi_enabled and self.config.sealer_roi_w > 0:
+            annotated = draw_sealer_roi_rect(
+                annotated,
+                self.config.sealer_roi_x,
+                self.config.sealer_roi_y,
+                self.config.sealer_roi_w,
+                self.config.sealer_roi_h,
+                int(self.metrics.get("sealer_cycle_count", 0)),
+                str(self.metrics.get("sealer_state", "OPEN")),
+            )
+        # Бейдж «Запайщик за смену» — и для ROI ручки, и для pose-палки (один счётчик)
+        if (
+            (self.config.sealer_roi_enabled and self.config.sealer_roi_w > 0)
+            or self.config.rod_pose_enabled
+        ):
+            annotated = draw_sealer_cycle_badge(
+                annotated,
+                int(self.metrics.get("sealer_cycle_count", 0)),
+                float(self.metrics.get("sealer_activity", 0.0)),
+            )
+        if self._last_rod_pose is not None:
+            annotated = draw_rod_pose_overlay(
+                annotated,
+                self._last_rod_pose.top,
+                self._last_rod_pose.bottom,
+                ema_angle=float(self.metrics.get("rod_angle", 0.0)),
+                ref_dA=float(self._rod_ref_dA),
+                press_count=int(self.metrics.get("sealer_cycle_count", 0)),
+                armed=bool(self.metrics.get("rod_armed", True)),
             )
         return draw_worker_count_badge(
             annotated,
@@ -872,23 +1215,19 @@ class FaceAnnotatedStreamer:
                 continue
 
             self._frame_idx += 1
-            run_infer = (
-                self._frame_idx % max(self.config.frame_interval, 1) == 0
-                or not self._last_boxes
-            )
-            if run_infer:
-                try:
-                    infer_start = time.time()
-                    self._run_inference(frame)
-                    elapsed = time.time() - infer_start
-                    self._infer_count += 1
-                    if elapsed > 0:
-                        self.metrics["infer_fps"] = 0.7 * self.metrics["infer_fps"] + 0.3 * (
-                            1.0 / elapsed
-                        )
-                except Exception as exc:
-                    log.error(f"[cam {self.config.camera_id}] infer error: {exc}")
-                    self.metrics["errors"] += 1
+            # 1:1 — детекция на каждом кадре, который уходит в трансляцию
+            try:
+                infer_start = time.time()
+                self._run_inference(frame)
+                elapsed = time.time() - infer_start
+                self._infer_count += 1
+                if elapsed > 0:
+                    self.metrics["infer_fps"] = 0.7 * self.metrics["infer_fps"] + 0.3 * (
+                        1.0 / elapsed
+                    )
+            except Exception as exc:
+                log.error(f"[cam {self.config.camera_id}] infer error: {exc}")
+                self.metrics["errors"] += 1
 
             annotated = self._annotate(frame)
 

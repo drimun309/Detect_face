@@ -51,6 +51,13 @@
     return h + ":" + pad2(m);
   }
 
+  /** Длительность в зоне; для 2+ чел. — уже с коэффициентом (чел·часы вклада). */
+  function fmtWorkersCol(sec, workers) {
+    const n = Math.max(0, Number(workers) || 0);
+    const mult = n >= 2 ? n : 1;
+    return fmtDuration((sec || 0) * mult);
+  }
+
   function zoneDisplayName(z) {
     const name = z && z.roi_name ? String(z.roi_name).trim() : "";
     return name || t("statsZoneLabel", { n: z.roi_index });
@@ -220,6 +227,8 @@
     let selectedDate = null;
     let activePeriod = "7";
     let activeMode = "roi";
+    let sealerByDate = {};
+    let hasSealerStats = false;
 
     const PERIODS = [
       { id: "7", days: 7 },
@@ -242,11 +251,128 @@
     }
 
     function tableColspan() {
-      return isPeopleMode() ? 6 : 8;
+      const extra = hasSealerStats ? 1 : 0;
+      return (isPeopleMode() ? 6 : 8) + extra;
+    }
+
+    function sealerCountForDate(dateStr) {
+      const row = sealerByDate[dateStr];
+      return row ? row.cycle_count || 0 : 0;
+    }
+
+    function sealerTotalInRange() {
+      return Object.keys(sealerByDate).reduce(function (sum, dateStr) {
+        return sum + sealerCountForDate(dateStr);
+      }, 0);
+    }
+
+    function mergeSealerDaysIntoTable(days) {
+      if (!hasSealerStats) return days || [];
+      const byDate = {};
+      (days || []).forEach(function (day) {
+        byDate[day.date] = day;
+      });
+      Object.keys(sealerByDate).forEach(function (dateStr) {
+        if (byDate[dateStr]) return;
+        if (isPeopleMode()) {
+          byDate[dateStr] = {
+            date: dateStr,
+            person_seconds: 0,
+            seconds_0_workers: 0,
+            seconds_1_worker: 0,
+            seconds_2_workers: 0,
+            seconds_3_workers: 0,
+          };
+        } else {
+          byDate[dateStr] = {
+            date: dateStr,
+            work_seconds: 0,
+            idle_seconds: 0,
+            person_seconds: 0,
+            seconds_0_workers: 0,
+            seconds_1_worker: 0,
+            seconds_2_workers: 0,
+            zones: [],
+          };
+        }
+      });
+      return Object.keys(byDate)
+        .sort()
+        .map(function (key) {
+          return byDate[key];
+        });
+    }
+
+    function appendSealerSummary(baseText) {
+      if (!hasSealerStats) return baseText;
+      const extra = t("statsSealerSummary", { n: sealerTotalInRange() });
+      return baseText ? baseText + " · " + extra : extra;
+    }
+
+    async function loadSealerStats(camId, from, to) {
+      sealerByDate = {};
+      hasSealerStats = false;
+      if (!camId || !from || !to) return;
+      try {
+        const cfg = await request(API + "/cameras/" + camId + "/sealer-roi");
+        let show = !!(cfg && cfg.enabled);
+        if (!show) {
+          try {
+            const pkg = await request(
+              API + "/cameras/" + camId + "/package-detection"
+            );
+            show = !!(pkg && pkg.package_detection_enabled);
+          } catch (_pkg) {
+            show = false;
+          }
+        }
+        if (!show) return;
+        hasSealerStats = true;
+        const data = await request(
+          API +
+            "/sealer-stats/" +
+            camId +
+            "/daily?from=" +
+            encodeURIComponent(from) +
+            "&to=" +
+            encodeURIComponent(to)
+        );
+        (data.days || []).forEach(function (row) {
+          sealerByDate[row.date] = row;
+        });
+      } catch (_e) {
+        sealerByDate = {};
+        hasSealerStats = false;
+      }
+    }
+
+    function appendSealerRowToZonesTable(count) {
+      if (!zonesTableBody || !hasSealerStats) return;
+      const tr = document.createElement("tr");
+      tr.className = "stats-sealer-row";
+      if (isPeopleMode()) {
+        tr.innerHTML =
+          '<td colspan="5"><strong>' +
+          t("statsSealerProducts") +
+          "</strong></td><td><strong>" +
+          count +
+          "</strong></td>";
+      } else {
+        tr.innerHTML =
+          "<td><strong>" +
+          t("statsSealerProducts") +
+          "</strong></td><td colspan=\"3\">—</td><td><strong>" +
+          count +
+          "</strong></td><td>—</td><td>—</td><td>—</td>";
+      }
+      zonesTableBody.appendChild(tr);
     }
 
     function updateTableHead() {
       if (!tableHead) return;
+      const sealerCol = hasSealerStats
+        ? "<th>" + t("statsSealerProducts") + "</th>"
+        : "";
       if (isPeopleMode()) {
         tableHead.innerHTML =
           "<tr><th>" +
@@ -261,17 +387,25 @@
           t("statsWorkers2") +
           "</th><th>" +
           t("statsWorkers3") +
-          "</th></tr>";
+          "</th>" +
+          sealerCol +
+          "</tr>";
       } else {
         tableHead.innerHTML =
           "<tr><th>" +
           t("date") +
-          "</th><th>" +
-          t("statsWork") +
-          "</th><th>" +
-          t("statsIdle") +
-          "</th><th>" +
-          t("statsPersonHours") +
+          '</th><th title="' +
+          t("statsWorkAllZonesHint") +
+          '">' +
+          t("statsWorkAllZones") +
+          '</th><th title="' +
+          t("statsIdleAllZonesHint") +
+          '">' +
+          t("statsIdleAllZones") +
+          '</th><th title="' +
+          t("statsPersonHoursAllZonesHint") +
+          '">' +
+          t("statsPersonHoursAllZones") +
           "</th><th>" +
           t("statsWorkers0") +
           "</th><th>" +
@@ -280,7 +414,9 @@
           t("statsWorkers2") +
           "</th><th>" +
           t("statsZones") +
-          "</th></tr>";
+          "</th>" +
+          sealerCol +
+          "</tr>";
       }
     }
 
@@ -505,7 +641,11 @@
       tableBody.innerHTML = "";
       if (!currentDays.length) {
         tableBody.innerHTML =
-          '<tr><td colspan="8" class="help-text">' + t("statsNoData") + "</td></tr>";
+          '<tr><td colspan="' +
+          tableColspan() +
+          '" class="help-text">' +
+          t("statsNoData") +
+          "</td></tr>";
         if (summaryEl) summaryEl.textContent = "";
         clearDetail();
         return;
@@ -531,14 +671,17 @@
           "</td><td>" +
           fmtPersonHours(day.person_seconds) +
           "</td><td>" +
-          fmtDuration(day.seconds_0_workers) +
+          fmtWorkersCol(day.seconds_0_workers, 0) +
           "</td><td>" +
-          fmtDuration(day.seconds_1_worker) +
+          fmtWorkersCol(day.seconds_1_worker, 1) +
           "</td><td>" +
-          fmtDuration(day.seconds_2_workers) +
+          fmtWorkersCol(day.seconds_2_workers, 2) +
           "</td><td>" +
           (day.zones ? day.zones.length : 0) +
-          "</td>";
+          "</td>" +
+          (hasSealerStats
+            ? "<td>" + sealerCountForDate(day.date) + "</td>"
+            : "");
         tr.addEventListener("click", function () {
           selectDay(day.date);
         });
@@ -546,12 +689,14 @@
       });
 
       if (summaryEl) {
-        summaryEl.textContent = t("statsRoiSummary", {
-          days: currentDays.length,
-          work: fmtDuration(sumWork),
-          idle: fmtDuration(sumIdle),
-          personHours: fmtPersonHours(sumPerson),
-        });
+        summaryEl.textContent = appendSealerSummary(
+          t("statsRoiSummary", {
+            days: currentDays.length,
+            work: fmtDuration(sumWork),
+            idle: fmtDuration(sumIdle),
+            personHours: fmtPersonHours(sumPerson),
+          })
+        );
       }
     }
 
@@ -560,7 +705,11 @@
       tableBody.innerHTML = "";
       if (!currentDays.length) {
         tableBody.innerHTML =
-          '<tr><td colspan="6" class="help-text">' + t("statsNoPeopleData") + "</td></tr>";
+          '<tr><td colspan="' +
+          tableColspan() +
+          '" class="help-text">' +
+          t("statsNoPeopleData") +
+          "</td></tr>";
         if (summaryEl) summaryEl.textContent = "";
         clearDetail();
         return;
@@ -578,14 +727,17 @@
           "</td><td>" +
           fmtPersonHours(day.person_seconds) +
           "</td><td>" +
-          fmtDuration(day.seconds_0_workers) +
+          fmtWorkersCol(day.seconds_0_workers, 0) +
           "</td><td>" +
-          fmtDuration(day.seconds_1_worker) +
+          fmtWorkersCol(day.seconds_1_worker, 1) +
           "</td><td>" +
-          fmtDuration(day.seconds_2_workers) +
+          fmtWorkersCol(day.seconds_2_workers, 2) +
           "</td><td>" +
-          fmtDuration(day.seconds_3_workers) +
-          "</td>";
+          fmtWorkersCol(day.seconds_3_workers, 3) +
+          "</td>" +
+          (hasSealerStats
+            ? "<td>" + sealerCountForDate(day.date) + "</td>"
+            : "");
         tr.addEventListener("click", function () {
           selectDay(day.date);
         });
@@ -593,10 +745,12 @@
       });
 
       if (summaryEl) {
-        summaryEl.textContent = t("statsPeopleSummary", {
-          days: currentDays.length,
-          personHours: fmtPersonHours(sumPerson),
-        });
+        summaryEl.textContent = appendSealerSummary(
+          t("statsPeopleSummary", {
+            days: currentDays.length,
+            personHours: fmtPersonHours(sumPerson),
+          })
+        );
       }
     }
 
@@ -639,14 +793,15 @@
             "<tr><td>" +
             fmtPersonHours(day.person_seconds) +
             "</td><td>" +
-            fmtDuration(day.seconds_0_workers) +
+            fmtWorkersCol(day.seconds_0_workers, 0) +
             "</td><td>" +
-            fmtDuration(day.seconds_1_worker) +
+            fmtWorkersCol(day.seconds_1_worker, 1) +
             "</td><td>" +
-            fmtDuration(day.seconds_2_workers) +
+            fmtWorkersCol(day.seconds_2_workers, 2) +
             "</td><td>" +
-            fmtDuration(day.seconds_3_workers) +
+            fmtWorkersCol(day.seconds_3_workers, 3) +
             "</td></tr>";
+          appendSealerRowToZonesTable(sealerCountForDate(dateStr));
         }
         timelineEl.innerHTML = '<p class="help-text">' + t("loading") + "</p>";
         try {
@@ -681,14 +836,15 @@
               "</td><td>" +
               fmtPersonHours(z.person_seconds) +
               "</td><td>" +
-              fmtDuration(z.seconds_0_workers) +
+              fmtWorkersCol(z.seconds_0_workers, 0) +
               "</td><td>" +
-              fmtDuration(z.seconds_1_worker) +
+              fmtWorkersCol(z.seconds_1_worker, 1) +
               "</td><td>" +
-              fmtDuration(z.seconds_2_workers) +
+              fmtWorkersCol(z.seconds_2_workers, 2) +
               "</td>";
             zonesTableBody.appendChild(tr);
           });
+          appendSealerRowToZonesTable(sealerCountForDate(dateStr));
         }
       }
 
@@ -773,22 +929,27 @@
       tableBody.innerHTML =
         '<tr><td colspan="' + colspan + '" class="help-text">' + t("loading") + "</td></tr>";
       try {
-        const data = await request(
-          API +
-            statsApiBase() +
-            camId +
-            "/daily?from=" +
-            encodeURIComponent(from) +
-            "&to=" +
-            encodeURIComponent(to)
-        );
+        const [data] = await Promise.all([
+          request(
+            API +
+              statsApiBase() +
+              camId +
+              "/daily?from=" +
+              encodeURIComponent(from) +
+              "&to=" +
+              encodeURIComponent(to)
+          ),
+          loadSealerStats(camId, from, to),
+        ]);
+        updateTableHead();
+        updateDetailHead();
         if (isPeopleMode() && data.server_today) {
           serverToday = data.server_today;
           if (toInput && toInput.value < data.server_today) {
             toInput.value = data.server_today;
           }
         }
-        renderTable(data.days || []);
+        renderTable(mergeSealerDaysIntoTable(data.days || []));
       } catch (e) {
         tableBody.innerHTML =
           '<tr><td colspan="' + colspan + '" class="help-text">' + e.message + "</td></tr>";

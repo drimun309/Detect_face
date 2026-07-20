@@ -192,6 +192,21 @@
                     <p class="help-text" data-i18n="crowdhumanDetTypeHelp"></p>
                   </div>
                   <div class="form-group">
+                    <label for="person_tracker" data-i18n="personTracker">Трекер людей</label>
+                    <select id="person_tracker" name="person_tracker" class="form-select">
+                      <option value="off" data-i18n="trackerOff">Выкл.</option>
+                      <option value="bytetrack" selected data-i18n="trackerByteTrack">ByteTrack</option>
+                      <option value="botsort" data-i18n="trackerBoTSORT">BoT-SORT</option>
+                      <option value="sort" data-i18n="trackerSORT">SORT (Kalman)</option>
+                    </select>
+                    <p class="help-text" data-i18n="personTrackerHelp"></p>
+                  </div>
+                  <div class="form-group">
+                    <label for="person_track_buffer" data-i18n="personTrackBuffer">Держать трек (кадров)</label>
+                    <input type="number" id="person_track_buffer" name="person_track_buffer" class="form-input" min="5" max="120" step="1" value="45" />
+                    <p class="help-text" data-i18n="personTrackBufferHelp"></p>
+                  </div>
+                  <div class="form-group">
                     <label for="detection_mode" data-i18n="detectionMode">Режим детекции</label>
                     <select id="detection_mode" name="detection_mode" class="form-select">
                       <option value="face" data-i18n="modeFace">Лицо</option>
@@ -326,20 +341,7 @@
                 <h2 class="section-title" data-i18n="sectionStream">Поток и производительность</h2>
                 <div class="form-grid">
                   <div class="form-group">
-                    <label for="stream_frame_interval" data-i18n="frameInterval">Каждый N-й кадр</label>
-                    <select id="stream_frame_interval" name="stream_frame_interval" class="form-select">
-                      <option value="1">1</option>
-                      <option value="2" selected>2</option>
-                      <option value="3">3</option>
-                      <option value="4">4</option>
-                      <option value="6">6</option>
-                      <option value="8">8</option>
-                      <option value="12">12</option>
-                    </select>
-                    <p class="help-text" data-i18n="frameIntervalHelp"></p>
-                  </div>
-                  <div class="form-group">
-                    <label for="stream_fps" data-i18n="streamFps">FPS</label>
+                    <label for="stream_fps" data-i18n="streamFps">FPS (детекция = трансляция)</label>
                     <input
                       id="stream_fps"
                       name="stream_fps"
@@ -349,7 +351,9 @@
                       value="10"
                       class="form-input"
                     />
+                    <p class="help-text" data-i18n="streamFpsHelp"></p>
                   </div>
+                  <input type="hidden" id="stream_frame_interval" name="stream_frame_interval" value="1" />
                   <div class="form-group">
                     <label for="stream_resolution" data-i18n="streamResolution">Разрешение</label>
                     <select id="stream_resolution" name="stream_resolution" class="form-select">
@@ -659,6 +663,22 @@
           >
             Пакеты: выкл.
           </button>
+          <button
+            type="button"
+            id="sealer-roi-btn"
+            class="btn btn-secondary hidden"
+            data-i18n="sealerRoiEdit"
+          >
+            ROI ручки
+          </button>
+          <button
+            type="button"
+            id="sealer-roi-clear-btn"
+            class="btn btn-secondary hidden"
+            data-i18n="sealerRoiClear"
+          >
+            Очистить ручку
+          </button>
           <button type="button" id="roi-edit-btn" class="btn btn-secondary" data-i18n="roiEdit">
             Зона ROI
           </button>
@@ -687,6 +707,7 @@
           <span id="roi-status" class="roi-status" data-i18n="roiOff">ROI выкл.</span>
         </div>
         <p id="people-zone-stats" class="people-zone-stats hidden" aria-live="polite"></p>
+        <p id="sealer-roi-stats" class="people-zone-stats hidden" aria-live="polite"></p>
         <div id="roi-names-panel" class="roi-names-panel hidden"></div>
         <div class="player-wrap stream-player-wrap">
           <video id="stream-video" autoplay playsinline muted></video>
@@ -827,10 +848,10 @@
       </div>
     </div>
 
-    <script src="/roi.js?v=9" charset="UTF-8"></script>
+    <script src="/roi.js?v=12" charset="UTF-8"></script>
     <script src="/rec-timeline.js?v=8" charset="UTF-8"></script>
-    <script src="/stats.js?v=5" charset="UTF-8"></script>
-    <script src="/app.js?v=38" charset="UTF-8"></script>
+    <script src="/stats.js?v=10" charset="UTF-8"></script>
+    <script src="/app.js?v=43" charset="UTF-8"></script>
     <script src="/chat.js?v=1" charset="UTF-8"></script>
   </body>
 </html>

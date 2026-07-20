@@ -53,7 +53,7 @@ class Configs(BaseSettings):
     STREAM_WIDTH: int = 1280
     STREAM_HEIGHT: int = 720
     STREAM_FPS: int = 10
-    STREAM_FRAME_INTERVAL: int = 2
+    STREAM_FRAME_INTERVAL: int = 1
     STREAM_SHOW_UNKNOWN_DISTANCE: bool = False
     ROI_TIMER_SWITCH_SEC: float = 60.0
     ROI_TIMER_RESET_GRACE_SEC: float = 7.0
@@ -61,6 +61,10 @@ class Configs(BaseSettings):
     PACKAGE_DET_CONF: float = 0.25
     PACKAGE_DET_IMGSZ: int = 960
     PACKAGE_COUNT_DWELL_SEC: float = 1.0
+    ROD_POSE_MODEL_PATH: str = "assets/best_pose.pt"
+    ROD_POSE_CONF: float = 0.25
+    ROD_POSE_IMGSZ: int = 640
+    SEALER_CYCLE_DWELL_SEC: float = 1.0
     DETECTION_MODE: Literal["face", "person", "face_person"] = "face"
     FR_DET_CONF: float = 0.25
     FR_DET_NMS: float = 0.45

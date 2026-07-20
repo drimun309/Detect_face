@@ -55,6 +55,16 @@ class DetectionSettingsSchema(BaseModel):
         "both",
         description="CrowdHuman: детектировать тело, голову или оба класса",
     )
+    person_tracker: Literal["off", "bytetrack", "botsort", "sort"] = Field(
+        "bytetrack",
+        description="Трекер людей: off / bytetrack / botsort / sort (Kalman)",
+    )
+    person_track_buffer: int = Field(
+        45,
+        ge=5,
+        le=120,
+        description="Сколько кадров держать трек без детекции (предсказание движения)",
+    )
 
     fr_det_conf: float = Field(0.25, ge=0.01, le=1.0, description="Порог уверенности детектора YOLOX")
     fr_det_nms: float = Field(0.45, ge=0.01, le=1.0, description="NMS детектора")
@@ -71,12 +81,14 @@ class DetectionSettingsSchema(BaseModel):
         description="Мин. score детекции для сравнения эмбеддинга",
     )
     stream_frame_interval: int = Field(
-        2,
+        1,
         ge=1,
         le=30,
-        description="Обрабатывать каждый N-й кадр",
+        description="Устарело: всегда 1 (детекция на каждом кадре трансляции)",
     )
-    stream_fps: int = Field(10, ge=1, le=30, description="FPS исходящего потока")
+    stream_fps: int = Field(
+        10, ge=1, le=30, description="FPS детекции и исходящего потока (1:1)"
+    )
     stream_width: int = Field(1280, ge=320, le=2560)
     stream_height: int = Field(720, ge=240, le=1440)
     stream_show_unknown_distance: bool = Field(

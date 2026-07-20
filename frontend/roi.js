@@ -20,11 +20,61 @@
   let isDrawingPeopleZone = false;
   let peopleDraftPolygon = [];
   let peopleZonePollTimer = null;
+  const SEALER_SPIKE_THRESH = 80.0;
+  const SEALER_REST_THRESH = -50.0;
+
+  let sealerRoi = {
+    enabled: false,
+    x: 0,
+    y: 0,
+    w: 0,
+    h: 0,
+    spike_thresh: SEALER_SPIKE_THRESH,
+    rest_thresh: SEALER_REST_THRESH,
+    cooldown_frames: 8,
+    cycle_count: 0,
+    activity: 0,
+  };
+  let isDrawingSealerRoi = false;
+  let sealerDragStart = null;
+  let sealerDraftRect = null;
+  let sealerPollTimer = null;
 
   const video = () => document.getElementById("stream-video");
   const canvas = () => document.getElementById("roi-canvas");
   const statusEl = () => document.getElementById("roi-status");
   const namesPanel = () => document.getElementById("roi-names-panel");
+
+  function stopSealerPoll() {
+    if (sealerPollTimer) {
+      clearInterval(sealerPollTimer);
+      sealerPollTimer = null;
+    }
+  }
+
+  function startSealerPoll() {
+    stopSealerPoll();
+    if (!cameraId || !sealerMode()) return;
+    sealerPollTimer = setInterval(function () {
+      loadSealerRoi(cameraId, true).catch(function () {});
+    }, 3000);
+  }
+
+  function sealerMode() {
+    return window.DF_getSealerRoiAvailable
+      ? window.DF_getSealerRoiAvailable()
+      : false;
+  }
+
+  function packageMode() {
+    return window.DF_getPackageDetectionEnabled
+      ? window.DF_getPackageDetectionEnabled()
+      : false;
+  }
+
+  function sealerRoiConfigured() {
+    return !!(sealerRoi.enabled && sealerRoi.w > 0 && sealerRoi.h > 0);
+  }
 
   function stopPeopleZonePoll() {
     if (peopleZonePollTimer) {
@@ -57,6 +107,58 @@
     return h + ":" + String(m).padStart(2, "0") + ":" + String(s).padStart(2, "0");
   }
 
+  function packageDetEnabled() {
+    return window.DF_getPackageDetectionEnabled
+      ? !!window.DF_getPackageDetectionEnabled()
+      : false;
+  }
+
+  function sealerStatsAvailable() {
+    return sealerMode() && (sealerRoiConfigured() || packageDetEnabled());
+  }
+
+  function updateSealerRoiStats() {
+    const el = document.getElementById("sealer-roi-stats");
+    if (!el) return;
+    if (!sealerStatsAvailable()) {
+      el.classList.add("hidden");
+      el.textContent = "";
+      return;
+    }
+    el.classList.remove("hidden");
+    el.textContent = t("sealerRoiStats", {
+      n: sealerRoi.cycles_today || sealerRoi.cycle_count || 0,
+      act: Number(sealerRoi.activity || 0).toFixed(1),
+    });
+  }
+
+  function updateSealerRoiControls() {
+    const btn = document.getElementById("sealer-roi-btn");
+    const clearBtn = document.getElementById("sealer-roi-clear-btn");
+    const show = !!cameraId && sealerMode();
+    if (btn) {
+      btn.classList.toggle("hidden", !show);
+      const active = isDrawingSealerRoi || sealerRoiConfigured() || packageDetEnabled();
+      btn.classList.toggle("btn-primary", active);
+      btn.classList.toggle("btn-secondary", !active);
+      if (sealerRoiConfigured() || packageDetEnabled()) {
+        btn.title = t("sealerRoiActive", {
+          n: sealerRoi.cycles_today || sealerRoi.cycle_count || 0,
+        });
+      } else {
+        btn.title = t("sealerRoiNotConfigured");
+      }
+    }
+    if (clearBtn) clearBtn.classList.toggle("hidden", !show);
+    updateSealerRoiStats();
+  }
+
+  window.DF_updateSealerRoiControls = function () {
+    updateSealerRoiControls();
+    if (updateCanvasVisibility()) layoutCanvas();
+    else draw();
+  };
+
   function updatePeopleZoneStats() {
     const el = document.getElementById("people-zone-stats");
     if (!el) return;
@@ -88,6 +190,102 @@
     updatePeopleZoneStats();
     if (updateCanvasVisibility()) layoutCanvas();
     else draw();
+  }
+
+  function refreshSealerOverlay() {
+    updateSealerRoiControls();
+    if (updateCanvasVisibility()) layoutCanvas();
+    else draw();
+  }
+
+  async function loadSealerRoi(id, silent) {
+    if (!sealerMode()) {
+      sealerRoi = {
+        enabled: false,
+        x: 0,
+        y: 0,
+        w: 0,
+        h: 0,
+        cycle_count: 0,
+        activity: 0,
+      };
+      updateSealerRoiControls();
+      return;
+    }
+    const res = await fetch(API + "/cameras/" + id + "/sealer-roi");
+    if (!res.ok) return;
+    const data = await res.json();
+    if (isDrawingSealerRoi && silent) {
+      sealerRoi.cycle_count = data.cycle_count || 0;
+      sealerRoi.cycles_today = data.cycles_today || data.cycle_count || 0;
+      sealerRoi.activity = data.activity || 0;
+      updateSealerRoiStats();
+      return;
+    }
+    sealerRoi = {
+      enabled: !!data.enabled,
+      x: Number(data.x) || 0,
+      y: Number(data.y) || 0,
+      w: Number(data.w) || 0,
+      h: Number(data.h) || 0,
+      spike_thresh: Number(data.spike_thresh) || SEALER_SPIKE_THRESH,
+      rest_thresh: Number(data.rest_thresh) || SEALER_REST_THRESH,
+      cooldown_frames: Number(data.cooldown_frames) || 8,
+      cycle_count: data.cycle_count || 0,
+      cycles_today: data.cycles_today || data.cycle_count || 0,
+      activity: data.activity || 0,
+    };
+    if (!silent) updateStatus(roiEnabled);
+    refreshSealerOverlay();
+  }
+
+  async function saveSealerRoi(enabled) {
+    if (!cameraId) return false;
+    if (enabled && (sealerRoi.w <= 0 || sealerRoi.h <= 0)) {
+      alert(t("sealerRoiIncomplete"));
+      return false;
+    }
+    const body = {
+      enabled: !!enabled,
+      x: sealerRoi.x,
+      y: sealerRoi.y,
+      w: sealerRoi.w,
+      h: sealerRoi.h,
+      spike_thresh: Number(sealerRoi.spike_thresh) || SEALER_SPIKE_THRESH,
+      rest_thresh: Number(sealerRoi.rest_thresh) || SEALER_REST_THRESH,
+      cooldown_frames: Number(sealerRoi.cooldown_frames) || 8,
+    };
+    const res = await fetch(API + "/cameras/" + cameraId + "/sealer-roi", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      let err = await res.text();
+      try {
+        const parsed = JSON.parse(err);
+        err = parsed.detail || err;
+      } catch (_) {}
+      alert(err);
+      return false;
+    }
+    const data = await res.json();
+    sealerRoi = {
+      enabled: !!data.enabled,
+      x: Number(data.x) || 0,
+      y: Number(data.y) || 0,
+      w: Number(data.w) || 0,
+      h: Number(data.h) || 0,
+      spike_thresh: Number(data.spike_thresh) || SEALER_SPIKE_THRESH,
+      rest_thresh: Number(data.rest_thresh) || SEALER_REST_THRESH,
+      cooldown_frames: Number(data.cooldown_frames) || 8,
+      cycle_count: data.cycle_count || 0,
+      cycles_today: data.cycles_today || data.cycle_count || 0,
+      activity: data.activity || 0,
+    };
+    updateStatus(roiEnabled);
+    refreshSealerOverlay();
+    return true;
   }
 
   function zoneLabel(poly, polyIdx) {
@@ -229,6 +427,27 @@
         ? peopleDraftPolygon
         : peopleZone.polygon;
     drawPeoplePolygon(peoplePoly);
+
+    function drawSealerRect(rect, stroke, fill) {
+      if (!rect || rect.w <= 0 || rect.h <= 0) return;
+      const x = rect.x * c.width;
+      const y = rect.y * c.height;
+      const w = rect.w * c.width;
+      const h = rect.h * c.height;
+      ctx.fillStyle = fill || "rgba(80, 220, 255, 0.15)";
+      ctx.strokeStyle = stroke || "#50dcff";
+      ctx.lineWidth = 2;
+      ctx.fillRect(x, y, w, h);
+      ctx.strokeRect(x, y, w, h);
+    }
+
+    const sealerRect =
+      isDrawingSealerRoi && sealerDraftRect
+        ? sealerDraftRect
+        : sealerRoiConfigured()
+          ? sealerRoi
+          : null;
+    drawSealerRect(sealerRect, "#50dcff", "rgba(80, 220, 255, 0.15)");
   }
 
   function renderNamesPanel() {
@@ -439,6 +658,11 @@
       el.className = "roi-status active";
       return;
     }
+    if (isDrawingSealerRoi) {
+      el.textContent = t("sealerRoiDrawing");
+      el.className = "roi-status active";
+      return;
+    }
     if (isSelecting) {
       el.textContent = t("roiSelecting");
       el.className = "roi-status";
@@ -463,11 +687,21 @@
       } else {
         parts.push(t("peopleZoneNotConfigured"));
       }
+      if (sealerMode()) {
+        if (sealerRoiConfigured() || packageDetEnabled()) {
+          parts.push(t("sealerRoiActive", { n: sealerRoi.cycles_today || sealerRoi.cycle_count || 0 }));
+        } else {
+          parts.push(t("sealerRoiNotConfigured"));
+        }
+      }
     }
     if (parts.length) {
       el.textContent = parts.join(" · ");
       el.className =
-        "roi-status" + (enabled && n > 0 || peopleZoneConfigured() ? " active" : "");
+        "roi-status" +
+        (enabled && n > 0 || peopleZoneConfigured() || sealerRoiConfigured() || packageDetEnabled()
+          ? " active"
+          : "");
     } else {
       el.textContent = t("roiOff");
       el.className = "roi-status";
@@ -477,16 +711,25 @@
   function updateCanvasVisibility() {
     const c = canvas();
     if (!c) return false;
-    const visible = isSelecting || isDrawingPeopleZone || peopleZoneConfigured();
+    const visible =
+      isSelecting ||
+      isDrawingPeopleZone ||
+      isDrawingSealerRoi ||
+      peopleZoneConfigured() ||
+      sealerRoiConfigured();
     c.classList.toggle("hidden", !visible);
-    c.style.pointerEvents = isSelecting || isDrawingPeopleZone ? "auto" : "none";
+    c.style.pointerEvents =
+      isSelecting || isDrawingPeopleZone || isDrawingSealerRoi ? "auto" : "none";
     return visible;
   }
 
   function setSelecting(on) {
     isSelecting = on;
     dragState = null;
-    if (on) isDrawingPeopleZone = false;
+    if (on) {
+      isDrawingPeopleZone = false;
+      isDrawingSealerRoi = false;
+    }
     const editBtn = document.getElementById("roi-edit-btn");
     const visible = updateCanvasVisibility();
     if (editBtn) editBtn.classList.toggle("btn-primary", on);
@@ -500,6 +743,7 @@
     isDrawingPeopleZone = on;
     if (on) {
       isSelecting = false;
+      isDrawingSealerRoi = false;
       dragState = null;
       peopleDraftPolygon = [];
     }
@@ -512,12 +756,31 @@
     updateStatus(roiEnabled);
   }
 
+  function setSealerDrawing(on) {
+    isDrawingSealerRoi = on;
+    if (on) {
+      isSelecting = false;
+      isDrawingPeopleZone = false;
+      dragState = null;
+      sealerDragStart = null;
+      sealerDraftRect = null;
+    }
+    const editBtn = document.getElementById("roi-edit-btn");
+    const visible = updateCanvasVisibility();
+    if (editBtn) editBtn.classList.toggle("btn-primary", isSelecting);
+    updateSealerRoiControls();
+    if (visible) layoutCanvas();
+    else draw();
+    updateStatus(roiEnabled);
+  }
+
   window.DF_setStreamCameraId = function (id) {
     const prevId = cameraId;
     const sameCamera = id && prevId === id;
     cameraId = id;
     if (!id) {
       stopPeopleZonePoll();
+      stopSealerPoll();
       completedPolygons = [];
       currentPoints = [];
       peopleZone = {
@@ -528,10 +791,23 @@
         person_seconds: 0,
       };
       isDrawingPeopleZone = false;
+      isDrawingSealerRoi = false;
       peopleDraftPolygon = [];
+      sealerDragStart = null;
+      sealerDraftRect = null;
+      sealerRoi = {
+        enabled: false,
+        x: 0,
+        y: 0,
+        w: 0,
+        h: 0,
+        cycle_count: 0,
+        activity: 0,
+      };
       roiEnabled = false;
       updateCanvasVisibility();
       updatePeopleZoneBtn();
+      updateSealerRoiControls();
       setSelecting(false);
       renderNamesPanel();
       return;
@@ -547,14 +823,28 @@
         person_seconds: 0,
       };
       isDrawingPeopleZone = false;
+      isDrawingSealerRoi = false;
       peopleDraftPolygon = [];
+      sealerDragStart = null;
+      sealerDraftRect = null;
+      sealerRoi = {
+        enabled: false,
+        x: 0,
+        y: 0,
+        w: 0,
+        h: 0,
+        cycle_count: 0,
+        activity: 0,
+      };
       roiEnabled = false;
       updateCanvasVisibility();
       setSelecting(false);
     }
     loadRoi(id).catch(function () {});
     loadPeopleZone(id).catch(function () {});
+    loadSealerRoi(id).catch(function () {});
     startPeopleZonePoll();
+    startSealerPoll();
   };
 
   window.DF_onStreamVideoReady = function () {
@@ -570,6 +860,13 @@
       .catch(function () {
         refreshPeopleZoneOverlay();
       });
+    loadSealerRoi(cameraId, true)
+      .then(function () {
+        refreshSealerOverlay();
+      })
+      .catch(function () {
+        refreshSealerOverlay();
+      });
   };
 
   window.DF_initRoi = function () {
@@ -577,6 +874,8 @@
     const clearBtn = document.getElementById("roi-clear-btn");
     const peopleBtn = document.getElementById("people-zone-btn");
     const peopleClearBtn = document.getElementById("people-zone-clear-btn");
+    const sealerBtn = document.getElementById("sealer-roi-btn");
+    const sealerClearBtn = document.getElementById("sealer-roi-clear-btn");
     const c = canvas();
     if (!editBtn || !c) return;
 
@@ -636,14 +935,76 @@
       });
     }
 
+    if (sealerBtn) {
+      sealerBtn.addEventListener("click", function () {
+        if (!cameraId) {
+          alert(t("roiNeedStream"));
+          return;
+        }
+        if (!sealerMode()) {
+          alert(t("sealerRoiNeedDetection"));
+          return;
+        }
+        if (isDrawingSealerRoi) {
+          setSealerDrawing(false);
+          return;
+        }
+        setSealerDrawing(true);
+      });
+    }
+
+    if (sealerClearBtn) {
+      sealerClearBtn.addEventListener("click", function () {
+        if (!cameraId) return;
+        if (!confirm(t("sealerRoiClearConfirm"))) return;
+        sealerRoi = {
+          enabled: false,
+          x: 0,
+          y: 0,
+          w: 0,
+          h: 0,
+          cycle_count: 0,
+          activity: 0,
+        };
+        sealerDragStart = null;
+        sealerDraftRect = null;
+        setSealerDrawing(false);
+        fetch(API + "/cameras/" + cameraId + "/sealer-roi", { method: "DELETE" })
+          .then(function (r) {
+            return r.json();
+          })
+          .then(function (data) {
+            sealerRoi = {
+              enabled: !!data.enabled,
+              x: Number(data.x) || 0,
+              y: Number(data.y) || 0,
+              w: Number(data.w) || 0,
+              h: Number(data.h) || 0,
+              cycle_count: data.cycle_count || 0,
+      cycles_today: data.cycles_today || data.cycle_count || 0,
+              activity: data.activity || 0,
+            };
+            refreshSealerOverlay();
+            updateStatus(roiEnabled);
+          });
+      });
+    }
+
     c.addEventListener("mousedown", function (e) {
-      if (!isSelecting && !isDrawingPeopleZone) return;
+      if (!isSelecting && !isDrawingPeopleZone && !isDrawingSealerRoi) return;
       e.preventDefault();
       const rect = c.getBoundingClientRect();
       const cx = e.clientX - rect.left;
       const cy = e.clientY - rect.top;
       const pt = normFromCanvas(cx, cy);
       if (!pt) return;
+      if (isDrawingSealerRoi) {
+        if (e.button !== 0) return;
+        sealerDragStart = pt;
+        sealerDraftRect = { x: pt.x, y: pt.y, w: 0, h: 0 };
+        draw();
+        return;
+      }
       if (isDrawingPeopleZone) {
         if (e.button === 2) {
           if (peopleDraftPolygon.length >= 3) {
@@ -688,9 +1049,22 @@
     });
 
     c.addEventListener("mousemove", function (e) {
-      if (!isSelecting || !dragState) return;
       const rect = c.getBoundingClientRect();
-      const pt = normFromCanvas(e.clientX - rect.left, e.clientY - rect.top);
+      const cx = e.clientX - rect.left;
+      const cy = e.clientY - rect.top;
+      if (isDrawingSealerRoi && sealerDragStart) {
+        const pt = normFromCanvas(cx, cy);
+        if (!pt) return;
+        const x = Math.min(sealerDragStart.x, pt.x);
+        const y = Math.min(sealerDragStart.y, pt.y);
+        const w = Math.abs(pt.x - sealerDragStart.x);
+        const h = Math.abs(pt.y - sealerDragStart.y);
+        sealerDraftRect = { x: x, y: y, w: w, h: h };
+        draw();
+        return;
+      }
+      if (!isSelecting || !dragState) return;
+      const pt = normFromCanvas(cx, cy);
       if (!pt) return;
       const poly = completedPolygons[dragState.polyIndex];
       if (!poly || !poly.points || !poly.points[dragState.pointIndex]) return;
@@ -698,7 +1072,25 @@
       draw();
     });
 
-    c.addEventListener("mouseup", function () {
+    c.addEventListener("mouseup", function (e) {
+      if (isDrawingSealerRoi && sealerDragStart && sealerDraftRect) {
+        const rect = sealerDraftRect;
+        sealerDragStart = null;
+        sealerDraftRect = null;
+        if (rect.w >= 0.01 && rect.h >= 0.01) {
+          sealerRoi.x = rect.x;
+          sealerRoi.y = rect.y;
+          sealerRoi.w = rect.w;
+          sealerRoi.h = rect.h;
+          sealerRoi.enabled = true;
+          saveSealerRoi(true).then(function (ok) {
+            if (ok) setSealerDrawing(false);
+          });
+        } else {
+          draw();
+        }
+        return;
+      }
       if (!isSelecting || !dragState) return;
       dragState = null;
       saveRoi(roiEnabled);
@@ -713,11 +1105,18 @@
     });
 
     c.addEventListener("contextmenu", function (e) {
-      if (isSelecting || isDrawingPeopleZone) e.preventDefault();
+      if (isSelecting || isDrawingPeopleZone || isDrawingSealerRoi) e.preventDefault();
     });
 
     window.addEventListener("resize", function () {
-      if (isSelecting || isDrawingPeopleZone || peopleZoneConfigured()) layoutCanvas();
+      if (
+        isSelecting ||
+        isDrawingPeopleZone ||
+        isDrawingSealerRoi ||
+        peopleZoneConfigured() ||
+        sealerRoiConfigured()
+      )
+        layoutCanvas();
     });
 
     const v = video();

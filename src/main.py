@@ -64,6 +64,9 @@ def main_api(cfg: Configs) -> None:
     camera_store = CameraStore(pg)
     settings_store = SettingsStore(cfg.DETECTION_SETTINGS_PATH, cfg)
     init_package_detection_service(cfg.PACKAGE_DET_MODEL_PATH, cfg.FR_PROVIDER)
+    from src.services.rod_pose_service import init_rod_pose_service
+
+    init_rod_pose_service(cfg.ROD_POSE_MODEL_PATH, cfg.FR_PROVIDER)
     stream_manager = init_stream_manager(cfg, camera_store=camera_store)
     stream_manager.apply_detection_settings(settings_store.get())
     from src.services.go2rtc_sync import sync_go2rtc_config

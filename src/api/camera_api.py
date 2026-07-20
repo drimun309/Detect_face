@@ -14,6 +14,7 @@ from src.schema.package_detection_schema import (
     PackageRoiCounterItem,
 )
 from src.schema.people_zone_schema import PeopleZoneConfig, PeopleZoneResponse
+from src.schema.sealer_roi_schema import SealerRoiConfig, SealerRoiResponse
 from src.schema.roi_schema import RoiResponse, RoiUpdate
 from src.services.camera_store import CameraStore
 from src.services.go2rtc_sync import sync_go2rtc_config
@@ -70,6 +71,31 @@ class CameraApi:
             manager.update_people_zone(camera_id, enabled, polygon, max_workers)
         except RuntimeError:
             pass
+
+    def _apply_sealer_roi_to_stream(self, camera_id: int) -> None:
+        try:
+            manager = get_stream_manager()
+            enabled, x, y, w, h, spike, rest, cooldown = (
+                self.store.get_sealer_roi_runtime(camera_id)
+            )
+            manager.update_sealer_roi(
+                camera_id, enabled, x, y, w, h, spike, rest, cooldown
+            )
+        except RuntimeError:
+            pass
+
+    def _sealer_response(self, camera_id: int) -> SealerRoiResponse:
+        zone = self.store.get_sealer_roi(camera_id)
+        if not zone:
+            raise HTTPException(status_code=404, detail="Camera not found")
+        try:
+            live = get_stream_manager().get_sealer_metrics(camera_id)
+            zone.cycles_today = int(live.get("cycles_today", 0))
+            zone.cycle_count = zone.cycles_today
+            zone.activity = float(live.get("activity", 0.0))
+        except RuntimeError:
+            pass
+        return zone
 
     def _on_camera_changed(self, camera, *, deleted: bool = False) -> None:
         try:
@@ -257,3 +283,39 @@ class CameraApi:
                 packed_today=0,
                 packed_by_roi=[],
             )
+
+        @self.router.get(
+            "/cameras/{camera_id}/sealer-roi",
+            response_model=SealerRoiResponse,
+        )
+        async def get_sealer_roi(camera_id: int) -> SealerRoiResponse:
+            return self._sealer_response(camera_id)
+
+        @self.router.put(
+            "/cameras/{camera_id}/sealer-roi",
+            response_model=SealerRoiResponse,
+        )
+        async def update_sealer_roi(
+            camera_id: int, payload: SealerRoiConfig
+        ) -> SealerRoiResponse:
+            if payload.enabled and (payload.w <= 0 or payload.h <= 0):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Для зоны запайщика нужен прямоугольник (w,h > 0)",
+                )
+            zone = self.store.update_sealer_roi(camera_id, payload)
+            if not zone:
+                raise HTTPException(status_code=404, detail="Camera not found")
+            self._apply_sealer_roi_to_stream(camera_id)
+            return self._sealer_response(camera_id)
+
+        @self.router.delete(
+            "/cameras/{camera_id}/sealer-roi",
+            response_model=SealerRoiResponse,
+        )
+        async def delete_sealer_roi(camera_id: int) -> SealerRoiResponse:
+            zone = self.store.delete_sealer_roi(camera_id)
+            if not zone:
+                raise HTTPException(status_code=404, detail="Camera not found")
+            self._apply_sealer_roi_to_stream(camera_id)
+            return self._sealer_response(camera_id)

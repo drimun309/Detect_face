@@ -15,12 +15,21 @@
       statsTimelineWorkers: "Занятость (чел·часы)",
       statsMode: "Тип аналитики",
       statsModeRoi: "Рабочие зоны",
+      statsSealerProducts: "Готовые изделия",
+      statsSealerCycles: "Циклы",
+      statsSealerSummary: "готовые изделия: {n}",
       statsModePeople: "Общая зона",
       statsPersonHours: "Чел·часы",
-      statsWorkers0: "×0",
-      statsWorkers1: "×1",
-      statsWorkers2: "×2",
-      statsWorkers3: "×3",
+      statsWorkAllZones: "Работа (всех зон)",
+      statsIdleAllZones: "Простой (всех зон)",
+      statsPersonHoursAllZones: "Чел·часы (всех зон)",
+      statsWorkAllZonesHint: "Сумма работы по всем рабочим зонам за смену 07:00–19:00",
+      statsIdleAllZonesHint: "Сумма простоя по всем рабочим зонам за смену 07:00–19:00",
+      statsPersonHoursAllZonesHint: "Сумма чел·часов по всем рабочим зонам за смену 07:00–19:00",
+      statsWorkers0: "0 чел. в зоне",
+      statsWorkers1: "1 чел. в зоне",
+      statsWorkers2: "2 чел. в зоне",
+      statsWorkers3: "3 чел. в зоне",
       statsPeopleZoneName: "Общая зона",
       statsPeopleSummary: "{days} дн. · 07:00–19:00 · чел·часы {personHours}",
       statsPeopleDayDetail: "Общая зона: {date}",
@@ -84,6 +93,15 @@
       packageDetectionOff: "Пакеты: выкл.",
       packageDetectionOn: "Пакеты: вкл.",
       packageDetectionHint: "Переключение…",
+      sealerRoiEdit: "ROI ручки",
+      sealerRoiClear: "Очистить ручку",
+      sealerRoiActive: "Запайщик: {n} циклов",
+      sealerRoiNotConfigured: "ROI ручки: не настроен",
+      sealerRoiDrawing: "Нарисуйте прямоугольник на ручке в покое (перетащите мышью)",
+      sealerRoiIncomplete: "Для зоны запайщика нужен прямоугольник",
+      sealerRoiClearConfirm: "Удалить зону ручки запайщика?",
+      sealerRoiNeedDetection: "Откройте просмотр с детекцией (кнопка «Детекция» на камере)",
+      sealerRoiStats: "За смену (7–19): {n} · активность {act}",
       delete: "Удалить",
       saveCamera: "Сохранить камеру",
       enabled: "Включена",
@@ -127,6 +145,16 @@
       crowdhumanHead: "Только голова",
       crowdhumanDetTypeHelp:
         "Для модели CrowdHuman: детектировать тело, голову или оба класса одновременно.",
+      personTracker: "Трекер людей",
+      trackerOff: "Выкл.",
+      trackerByteTrack: "ByteTrack",
+      trackerBoTSORT: "BoT-SORT",
+      trackerSORT: "SORT (Kalman)",
+      personTrackerHelp:
+        "Сопровождает человека между кадрами и предсказывает движение, если детекция на мгновение пропала (~ = предсказание). StrongSORT ≈ BoT-SORT.",
+      personTrackBuffer: "Держать трек (кадров)",
+      personTrackBufferHelp:
+        "Сколько кадров без детекции оставлять бокс по предсказанию (больше — стабильнее, но дольше «призрак»).",
       modeFace: "Лицо",
       modePerson: "Человек",
       modeFacePerson: "Лицо + человек",
@@ -192,8 +220,9 @@
       frDistanceHelp:
         "Меньше — строже совпадение (меньше ложных имён). Типично 0.4–0.75.",
       frameInterval: "Каждый N-й кадр",
-      frameIntervalHelp: "Больше — быстрее CPU, реже обновляются боксы.",
-      streamFps: "FPS потока",
+      frameIntervalHelp: "Больше не используется: детекция = FPS трансляции (1:1).",
+      streamFps: "FPS (детекция = трансляция)",
+      streamFpsHelp: "Одна частота: YOLO и картинка в браузере. 10 = 10 детекций/сек и 10 кадров в веб. Меньше — легче CPU.",
       streamResolution: "Разрешение",
       res720: "1280×720 (HD)",
       res1080: "1920×1080 (Full HD)",
@@ -275,10 +304,16 @@
       statsModeRoi: "Work zones",
       statsModePeople: "Whole zone",
       statsPersonHours: "Person·h",
-      statsWorkers0: "×0",
-      statsWorkers1: "×1",
-      statsWorkers2: "×2",
-      statsWorkers3: "×3",
+      statsWorkAllZones: "Work (all zones)",
+      statsIdleAllZones: "Idle (all zones)",
+      statsPersonHoursAllZones: "Person·h (all zones)",
+      statsWorkAllZonesHint: "Sum of work time across all work zones for shift 07:00–19:00",
+      statsIdleAllZonesHint: "Sum of idle time across all work zones for shift 07:00–19:00",
+      statsPersonHoursAllZonesHint: "Sum of person·hours across all work zones for shift 07:00–19:00",
+      statsWorkers0: "0 in zone",
+      statsWorkers1: "1 in zone",
+      statsWorkers2: "2 in zone",
+      statsWorkers3: "3 in zone",
       statsPeopleZoneName: "Whole zone",
       statsPeopleSummary: "{days} days · 07:00–19:00 · person·h {personHours}",
       statsPeopleDayDetail: "Whole zone: {date}",
@@ -342,6 +377,18 @@
       packageDetectionOff: "Packages: off",
       packageDetectionOn: "Packages: on",
       packageDetectionHint: "Switching…",
+      sealerRoiEdit: "Sealer handle ROI",
+      sealerRoiClear: "Clear handle ROI",
+      sealerRoiActive: "Sealer: {n} cycles",
+      sealerRoiNotConfigured: "Sealer handle ROI: not configured",
+      sealerRoiDrawing: "Draw a rectangle on the handle at rest (drag with mouse)",
+      sealerRoiIncomplete: "Sealer ROI needs a rectangle",
+      sealerRoiClearConfirm: "Remove sealer handle ROI?",
+      sealerRoiNeedDetection: "Open detection view (Detection button on the camera)",
+      sealerRoiStats: "Shift (7–19): {n} · activity {act}",
+      statsSealerProducts: "Готовые изделия",
+      statsSealerCycles: "Циклы",
+      statsSealerSummary: "finished products: {n}",
       delete: "Delete",
       saveCamera: "Save camera",
       enabled: "Enabled",
@@ -385,6 +432,16 @@
       crowdhumanHead: "Head only",
       crowdhumanDetTypeHelp:
         "For CrowdHuman model: detect body, head, or both classes.",
+      personTracker: "People tracker",
+      trackerOff: "Off",
+      trackerByteTrack: "ByteTrack",
+      trackerBoTSORT: "BoT-SORT",
+      trackerSORT: "SORT (Kalman)",
+      personTrackerHelp:
+        "Tracks people across frames and predicts motion when detection briefly drops (~ = predicted). StrongSORT ≈ BoT-SORT.",
+      personTrackBuffer: "Keep track (frames)",
+      personTrackBufferHelp:
+        "How many frames to keep a box by prediction without detection (higher = more stable, longer ghost).",
       modeFace: "Face",
       modePerson: "Person",
       modeFacePerson: "Face + person",
@@ -448,8 +505,9 @@
       frDistance: "Distance threshold (cosine)",
       frDistanceHelp: "Lower = stricter. Typical 0.4–0.75.",
       frameInterval: "Every N-th frame",
-      frameIntervalHelp: "Higher = less CPU.",
-      streamFps: "Stream FPS",
+      frameIntervalHelp: "Unused: detection = stream FPS (1:1).",
+      streamFps: "FPS (detection = stream)",
+      streamFpsHelp: "One rate: YOLO and browser video. 10 = 10 detections/sec and 10 frames to web. Lower = less CPU.",
       streamResolution: "Resolution",
       res720: "1280×720 (HD)",
       res1080: "1920×1080 (Full HD)",
@@ -631,6 +689,12 @@
         if (form.crowdhuman_det_type) {
           form.crowdhuman_det_type.value = s.crowdhuman_det_type || "both";
         }
+        if (form.person_tracker) {
+          form.person_tracker.value = s.person_tracker || "bytetrack";
+        }
+        if (form.person_track_buffer) {
+          form.person_track_buffer.value = s.person_track_buffer ?? 45;
+        }
         updateCrowdHumanOptions();
         confRange.value = Math.round(s.fr_det_conf * 100);
         confPct.textContent = confRange.value + "%";
@@ -638,7 +702,7 @@
         distRange.value = s.fr_distance;
         distVal.textContent = s.fr_distance;
         form.min_det_score.value = s.min_det_score;
-        form.stream_frame_interval.value = s.stream_frame_interval;
+        form.stream_frame_interval.value = "1";
         form.stream_fps.value = s.stream_fps;
         const res = s.stream_width + "x" + s.stream_height;
         if (form.stream_resolution.querySelector('option[value="' + res + '"]')) {
@@ -697,11 +761,13 @@
         detection_mode: String(form.detection_mode.value || "face"),
         person_det_model: String(form.person_det_model?.value || "yolov8s"),
         crowdhuman_det_type: String(form.crowdhuman_det_type?.value || "both"),
+        person_tracker: String(form.person_tracker?.value || "bytetrack"),
+        person_track_buffer: Number(form.person_track_buffer?.value || 45),
         fr_det_conf: Math.min(1, Math.max(0.01, Number(confRange.value) / 100)),
         fr_det_nms: Number(form.fr_det_nms.value),
         fr_distance: Number(distRange.value),
         min_det_score: Number(form.min_det_score.value),
-        stream_frame_interval: Number(form.stream_frame_interval.value),
+        stream_frame_interval: 1,
         stream_fps: Number(form.stream_fps.value),
         stream_width: Number(parts[0]),
         stream_height: Number(parts[1]),
@@ -958,7 +1024,20 @@
       packageDetectionEnabled = false;
     }
     updatePackageDetectionBtn();
+    if (window.DF_onPackageDetectionChanged) window.DF_onPackageDetectionChanged();
   }
+
+  window.DF_getPackageDetectionEnabled = function () {
+    return !!packageDetectionEnabled;
+  };
+
+  window.DF_getSealerRoiAvailable = function () {
+    return !!(currentUseAnnotated && currentCameraId);
+  };
+
+  window.DF_onPackageDetectionChanged = function () {
+    if (window.DF_updateSealerRoiControls) window.DF_updateSealerRoiControls();
+  };
 
   async function setPackageDetection(enabled) {
     if (!currentCameraId || !currentUseAnnotated) return;
@@ -988,6 +1067,7 @@
     } finally {
       if (btn) btn.disabled = false;
       updatePackageDetectionBtn();
+      if (window.DF_onPackageDetectionChanged) window.DF_onPackageDetectionChanged();
     }
   }
 

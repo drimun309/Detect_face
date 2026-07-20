@@ -33,4 +33,4 @@ onnxruntime==1.17.* # ONNX runtime
 onnx==1.16.* # ONNX graph metadata
 
 # person detection YOLOv8 (.pt), CPU
-ultralytics>=8.3.0
+ultralytics>=8.3.0lap>=0.5.12

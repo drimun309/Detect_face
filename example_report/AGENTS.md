@@ -139,93 +139,106 @@
 
 ---
 
-## ⚠️ Обновлено 2026-07-02 — добавлен AI чат-виджет
+## ⚠️ Обновлено 2026-07-20 — AI чат-виджет (direct API + SQL tool)
 
 ### Что это
 
-В правом нижнем углу detect_face frontend (`http://localhost:8081/`) теперь синяя
-кнопка **AI**. По клику открывается чат-панель, в которой можно спросить что угодно
-про отчёты, ROI-зоны, статистику. На том же хосте поднят отдельный Python-сервис,
-который пересылает сообщения в **Mavis general-agent сессию** — то есть пользователь
-виджетa общается **с тем же агентом**, что и в MiniMax Code, со всеми его инструментами
-(Read/Glob/Grep/Bash + доступ к `C:\Users\Dudu\Desktop\detect_face\`).
+В правом нижнем углу detect_face frontend (`http://localhost:8081/`) синяя кнопка **💬**.
+По клику — чат-панель, можно спросить что угодно про отчёты, ROI, person-counter,
+упаковки/запайку. На том же хосте поднят отдельный Python-сервис, который идёт
+**напрямую в MiniMax Anthropic-compatible API** с JWT из `local-runtime.auth.json`
+**минуя Mavis** (Mavis daemon сломан с 17.07.2026). У агента есть **инструмент
+SQL**: он пишет SELECT в ```sql ... ``` блоке, сервер его выполняет через `psycopg2`
+и возвращает результат, агент формулирует финальный ответ.
 
 ### Где что лежит
 
 ```
 C:\Users\Dudu\detect_face_chat\                  ← чат-бэкенд (на хосте, не в Docker)
-├── server.py                                     ← Python stdlib http.server, порт 9876
-├── run_chat.bat                                  ← запуск (использует Python 3.12)
-├── README.md                                     ← подробная инструкция
+├── server_direct.py                              ← Python stdlib http.server + psycopg2, порт 9876
+├── run_chat.bat                                  ← legacy-запуск server.py (НЕ используется)
 ├── static\
-│   ├── chat.js                                   ← vanilla JS виджет (кнопка + панель)
+│   ├── chat.js                                   ← оригинал виджета
 │   ├── chat.css                                  ← стили demo-страницы
-│   └── index.html                                ← demo-страница для проверки
+│   └── index.html                                ← demo-страница (http://localhost:9876/)
 └── logs\
-    └── chat-server.log
+    └── chat-direct.log                           ← логи
 
 C:\Users\Dudu\Desktop\detect_face\frontend\
 ├── chat.js                                       ← КОПИЯ виджета (та что грузится в браузере)
 └── index.html:834                                ← <script src="/chat.js?v=1"> перед </body>
 ```
 
-### Архитектура
+### Архитектура (current, 20.07.2026)
 
 ```
 detect_face frontend (8081, nginx, Docker)
   ↓ грузит /chat.js
   ↓ клик на 💬 → POST http://localhost:9876/api/chat
               ↓
-detect_face_chat server.py (9876, на хосте)
-  ↓ subprocess: mavis.cmd communication send --to <general-session> --command prompt
+detect_face_chat server_direct.py (9876, на хосте)
+  ├─ POST https://agent.minimax.io/mavis/api/v1/llm/v1/messages
+  │    Authorization: Bearer <JWT из local-runtime.auth.json>
+  │    model: MiniMax-M3
+  │    system: "DataFace Chat" с полной схемой БД и инструкцией "оберни SELECT в ```sql```"
+  │
+  ├─ если в ответе есть ```sql ... ``` блок(и):
+  │    - safety: только SELECT/WITH, без ;, запрещены DML/DDL
+  │    - psycopg2 → vision-fr @ localhost:7032
+  │    - лимит 1000 строк, statement_timeout 10s
+  │    - второй вызов API с результатами → финальный ответ
+  │
+  └─ JSON { reply, session, ts, meta: { sql_executed: [...] } }
               ↓
-Mavis daemon (localhost:15321)
-  ↓
-general agent session (mvs_ec3954456c0d4c948852dd714fb07802)
-   ↑ имеет Read/Glob/Grep/Bash + доступ к detect_face\
-   ← polling mavis session messages пока finish_reason != "stop"
-              ↑
-server.py отдаёт ответ в JSON
-              ↑
 виджет рисует ответ в чат-панели
 ```
 
+**Никакого Mavis, никакого polling, никакого mavis.cmd.** Только Python + urllib + psycopg2.
+
 ### Как запустить
 
-1. Открыть `C:\Users\Dudu\detect_face_chat\run_chat.bat` (двойной клик) — запустится сервер.
-2. Виджет в браузере заработает автоматически.
+```powershell
+# (пере)запуск server_direct.py
+Get-CimInstance Win32_Process -Filter "CommandLine LIKE '%detect_face_chat%server_direct.py%'" |
+  ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+$proc = Start-Process -FilePath "C:\Users\Dudu\AppData\Local\Programs\Python\Python312\python.exe" `
+  -ArgumentList "C:\Users\Dudu\detect_face_chat\server_direct.py" `
+  -WorkingDirectory "C:\Users\Dudu\detect_face_chat" `
+  -PassThru -WindowStyle Hidden `
+  -RedirectStandardOutput "C:\Users\Dudu\detect_face_chat\logs\stdout.log" `
+  -RedirectStandardError  "C:\Users\Dudu\detect_face_chat\logs\stderr.log"
+```
 
-### ⚠️ Подводные камни (запомнить перед любыми правками)
+### ⚠️ Подводные камни
 
 1. **Порт НЕ 8765!** На `localhost:8765` уже сидит чужой Flask-сервис
    (`compare_weights.py`, PID 24936, Werkzeug/Python 3.12). Используем **9876**.
 2. **Python НЕ из PATH!** `where python` указывает на `C:\RoboDK\Python37\python.exe`
-   (Python 3.7), который падает с SyntaxError на f-strings с кириллицей.
-   В `run_chat.bat` и `server.py` используется **жёстко** полный путь
+   (Python 3.7, падает на f-strings с кириллицей). Используем жёстко
    `C:\Users\Dudu\AppData\Local\Programs\Python\Python312\python.exe`.
-3. **Все сообщения попадают в ОДНУ сессию mvs_ec3954456c0d4c948852dd714fb07802** —
-   ту же, что у MiniMax Code. Диалог в виджете и в MiniMax Code **перемешиваются**.
-   Это by design для одного локального пользователя. Для нескольких юзеров — TODO.
-4. **CORS `*` разрешён** в `server.py` — на локалке норм, для удалённого доступа сузить.
-5. **Сервер на хосте → переживает перезагрузку Mavis как нет.** Если daemon падает,
-   чат тоже падает. Восстановление: перезапустить `run_chat.bat`.
-6. **Round-trip занимает 10–30 сек** (агент думает). Если 180 сек не уложился —
-   виджет показывает "Agent timeout. Try again.".
-7. **mavis.cmd должен быть в** `C:\Users\Dudu\.mavis\bin\mavis.cmd` —
-   server.py ищет его там по абсолютному пути (см. `_find_mavis_cmd()`).
+3. **Mavis сломан** (`cli.js` не существует, битый путь в `mavis.cmd`). Поэтому
+   `server_direct.py` идёт **напрямую** в `agent.minimax.io`. Если Mavis починят —
+   можно вернуться к team-plan версии, но пока работает direct.
+4. **Сервер на хосте тихо умирает** при reboot/Docker-обновлении/сне.
+   Проверка: `Get-NetTCPConnection -State Listen | Where LocalPort=9876`.
+   Если пусто — перезапустить (команда выше).
+5. **JWT в `local-runtime.auth.json`** может протухнуть. Если API начнёт
+   возвращать 401 — нужно перелогиниться в MiniMax Code, токен обновится.
+6. **CORS `*` разрешён** в `server_direct.py` — на локалке норм.
+7. **Агент НЕ знает текущую дату** и **НЕ ходит в интернет**. CURRENT_DATE
+   в SQL считается на стороне Postgres, это работает.
 
-### Что можно спросить в чате
+### Что можно спросить в чате (примеры)
 
-- "сколько камер в БД?"
-- "покажи последний отчёт по цеху №1"
-- "какая зона больше всех простаивает?"
-- "сделай summary таблицы roi_timer_daily за вчера"
-- "почему 12 июня был спад?"
-- любой вопрос про файлы в `C:\Users\Dudu\Desktop\detect_face\` — агент их читает напрямую.
+- "сколько упаковок на cam4 за 14-16 июля 2026?"
+- "покажи work/idle по cam3 за вчера по ROI"
+- "сколько людей было в зоне cam2 за неделю?"
+- "сводка по 4 камерам за последние 7 дней"
+- "сделай отчёт за 16.07.2026 как для директора"
 
 ### Known TODO
 
-- [ ] Per-user sessions (сейчас все ходят в одну)
-- [ ] Автозапуск run_chat.bat при старте Windows (Task Scheduler / NSSM)
-- [ ] Streaming ответа (SSE) вместо ожидания целиком
+- [ ] Watchdog / автоперезапуск server_direct.py при падении
 - [ ] nginx proxy `/chat/` → host:9876 (избавит от CORS-зависимости)
+- [ ] Streaming ответа (SSE) вместо ожидания целиком
+- [ ] Tool use через Anthropic API (если MiniMax-M3 поддержит) — заменит парсинг ```sql```

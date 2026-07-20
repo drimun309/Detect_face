@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+*.pyc
+calibration.txt
+events.json
+output.mp4
+report.png

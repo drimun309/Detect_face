@@ -133,6 +133,25 @@ def assign_detection_to_roi(
     return best_idx
 
 
+def count_roi_workers(
+    person_boxes: list[list[int]],
+    head_boxes: list[list[int]],
+    max_workers: int = 2,
+) -> int:
+    """Число людей в ROI: тела + головы, не попадающие внутрь рамки тела."""
+    count = len(person_boxes)
+    for hbox in head_boxes:
+        hcx = (hbox[0] + hbox[2]) / 2.0
+        hcy = (hbox[1] + hbox[3]) / 2.0
+        inside_body = any(
+            pbox[0] <= hcx <= pbox[2] and pbox[1] <= hcy <= pbox[3]
+            for pbox in person_boxes
+        )
+        if not inside_body:
+            count += 1
+    return min(max_workers, max(0, count))
+
+
 def scale_polygons_to_pixels(
     polygons: list[list[tuple[float, float]]], width: int, height: int
 ) -> list[list[tuple[int, int]]]:

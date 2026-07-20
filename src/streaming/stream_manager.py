@@ -26,8 +26,11 @@ from src.utils.stream_quality import (
     size_to_preset,
 )
 from src.services.package_counter_store import PackageCounterStore
+from src.services.sealer_counter_store import SealerCounterStore
 from src.services.people_counter_store import PeopleCounterStore
 from src.services.package_detection_service import get_package_detection_service
+from src.services.rod_pose_service import get_rod_pose_service
+from src.services.rod_counter_store import RodCounterStore
 from src.services.roi_people_counter_store import RoiPeopleCounterStore
 from src.utils.logger import get_logger
 from src.utils.roi_helpers import RoiPolygonData, polygons_points
@@ -47,6 +50,7 @@ class FaceStreamManager:
         self._lock = threading.Lock()
         self._session_override: dict[int, tuple[int, int]] = {}
         self._package_camera_ids: set[int] = set()
+        self._rod_camera_ids: set[int] = set()
 
         self.engine = FrOnnxEngine(
             det_engine_path=cfg.FR_DET_ENGINE_PATH,
@@ -56,6 +60,8 @@ class FaceStreamManager:
         )
         self.engine.setup()
         self._person_model_id = ""
+        self._person_tracker = "bytetrack"
+        self._person_track_buffer = 45
         self.person_engine = self._create_person_engine(
             infer_person_model_id(cfg.PERSON_DET_ENGINE_PATH)
         )
@@ -73,6 +79,8 @@ class FaceStreamManager:
         self.people_counter_store = PeopleCounterStore(self.db)
         self.roi_people_counter_store = RoiPeopleCounterStore(self.db)
         self.package_counter_store = PackageCounterStore(self.db)
+        self.sealer_counter_store = SealerCounterStore(self.db)
+        self.rod_counter_store = RodCounterStore(self.db)
         log.info(f"Face DB ready: {self.face_store.count} embedding(s) loaded")
 
     def _create_person_engine(self, model_id: str):
@@ -103,14 +111,17 @@ class FaceStreamManager:
         self.cfg.FR_DET_NMS = settings.fr_det_nms
         self.cfg.FR_DISTANCE = settings.fr_distance
         self.cfg.FR_MIN_DET_SCORE = settings.min_det_score
-        self.cfg.STREAM_FRAME_INTERVAL = settings.stream_frame_interval
+        self.cfg.STREAM_FRAME_INTERVAL = 1
         self.cfg.STREAM_FPS = settings.stream_fps
+        settings.stream_frame_interval = 1
         self.cfg.STREAM_WIDTH = settings.stream_width
         self.cfg.STREAM_HEIGHT = settings.stream_height
         self.cfg.STREAM_SHOW_UNKNOWN_DISTANCE = settings.stream_show_unknown_distance
         self.cfg.EMBEDDING_REFRESH_SEC = settings.embedding_refresh_sec
         self.cfg.ROI_TIMER_SWITCH_SEC = settings.roi_timer_switch_sec
         self.cfg.ROI_TIMER_RESET_GRACE_SEC = settings.roi_timer_reset_grace_sec
+        self._person_tracker = settings.person_tracker
+        self._person_track_buffer = int(settings.person_track_buffer)
         self.face_store.refresh_interval_sec = settings.embedding_refresh_sec
 
         self._apply_person_model_settings(settings)
@@ -123,10 +134,14 @@ class FaceStreamManager:
             streamer.config.det_nms = settings.fr_det_nms
             streamer.config.distance = settings.fr_distance
             streamer.config.min_det_score = settings.min_det_score
-            streamer.config.frame_interval = settings.stream_frame_interval
+            streamer.config.frame_interval = 1
             streamer.config.fps = settings.stream_fps
             streamer.config.show_unknown_distance = settings.stream_show_unknown_distance
             streamer.config.output_size = new_size
+            streamer.set_person_tracker(
+                settings.person_tracker,
+                track_buffer=settings.person_track_buffer,
+            )
 
         need_restart = old_size != new_size or old_fps != settings.stream_fps
         if need_restart and self.camera_store:
@@ -144,7 +159,8 @@ class FaceStreamManager:
             f"crowdhuman_type={settings.crowdhuman_det_type} "
             f"conf={settings.fr_det_conf:.2f} distance={settings.fr_distance:.2f} "
             f"interval={settings.stream_frame_interval} "
-            f"roi_switch={settings.roi_timer_switch_sec:.0f}s"
+            f"roi_switch={settings.roi_timer_switch_sec:.0f}s "
+            f"tracker={settings.person_tracker} buffer={settings.person_track_buffer}"
         )
 
     def reload_embeddings(self) -> int:
@@ -175,6 +191,20 @@ class FaceStreamManager:
         if self.camera_store:
             people_enabled, people_polygon, people_max_workers = (
                 self.camera_store.get_people_zone_runtime(camera.id)
+            )
+        sealer_enabled, sx, sy, sw, sh, spike, rest, cooldown = (
+            False,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            8.0,
+            2.0,
+            8,
+        )
+        if self.camera_store:
+            sealer_enabled, sx, sy, sw, sh, spike, rest, cooldown = (
+                self.camera_store.get_sealer_roi_runtime(camera.id)
             )
         direct_rtsp = build_rtsp_url(camera)
         go2rtc_rtsp = (
@@ -212,6 +242,20 @@ class FaceStreamManager:
             package_det_conf=self.cfg.PACKAGE_DET_CONF,
             package_det_imgsz=self.cfg.PACKAGE_DET_IMGSZ,
             package_count_dwell_sec=self.cfg.PACKAGE_COUNT_DWELL_SEC,
+            rod_pose_enabled=bool(getattr(camera, "package_detection_enabled", False)),
+            rod_pose_conf=self.cfg.ROD_POSE_CONF,
+            rod_pose_imgsz=self.cfg.ROD_POSE_IMGSZ,
+            sealer_roi_enabled=sealer_enabled,
+            sealer_roi_x=sx,
+            sealer_roi_y=sy,
+            sealer_roi_w=sw,
+            sealer_roi_h=sh,
+            sealer_roi_spike_thresh=spike,
+            sealer_roi_rest_thresh=rest,
+            sealer_roi_cooldown_frames=cooldown,
+            sealer_cycle_dwell_sec=self.cfg.SEALER_CYCLE_DWELL_SEC,
+            person_tracker=self._person_tracker,  # type: ignore[arg-type]
+            person_track_buffer=self._person_track_buffer,
         )
 
     def _apply_camera_config_to_streamer(
@@ -232,6 +276,21 @@ class FaceStreamManager:
         streamer.update_people_zone(
             people_enabled, people_polygon, people_max_workers
         )
+        sealer_enabled, sx, sy, sw, sh, spike, rest, cooldown = (
+            self.camera_store.get_sealer_roi_runtime(camera_id)
+        )
+        streamer.update_sealer_roi(
+            sealer_enabled, sx, sy, sw, sh, spike, rest, cooldown
+        )
+
+    def _release_rod_if_needed(self, camera_id: int) -> None:
+        if camera_id not in self._rod_camera_ids:
+            return
+        try:
+            get_rod_pose_service().release()
+        except RuntimeError:
+            pass
+        self._rod_camera_ids.discard(camera_id)
 
     def _release_package_if_needed(self, camera_id: int) -> None:
         if camera_id not in self._package_camera_ids:
@@ -244,8 +303,21 @@ class FaceStreamManager:
 
     def update_package_detection(self, camera_id: int, enabled: bool) -> None:
         streamer = self.streamers.get(camera_id)
+        if enabled:
+            try:
+                rod_engine = get_rod_pose_service().acquire()
+                self._rod_camera_ids.add(camera_id)
+                if streamer:
+                    streamer.rod_pose_engine = rod_engine
+            except RuntimeError as exc:
+                log.error(f"Rod pose unavailable for cam{camera_id}: {exc}")
+        else:
+            if streamer:
+                streamer.rod_pose_engine = None
+            self._release_rod_if_needed(camera_id)
         if streamer:
             streamer.update_package_detection(enabled)
+            streamer.update_rod_pose(enabled)
 
     def update_roi_polygons(
         self,
@@ -272,10 +344,42 @@ class FaceStreamManager:
         if streamer:
             streamer.update_people_zone(enabled, polygon, max_workers)
 
+    def update_sealer_roi(
+        self,
+        camera_id: int,
+        enabled: bool,
+        x: float,
+        y: float,
+        w: float,
+        h: float,
+        spike_thresh: float = 8.0,
+        rest_thresh: float = 2.0,
+        cooldown_frames: int = 8,
+    ) -> None:
+        streamer = self.streamers.get(camera_id)
+        if streamer:
+            streamer.update_sealer_roi(
+                enabled, x, y, w, h, spike_thresh, rest_thresh, cooldown_frames
+            )
+
+    def get_sealer_metrics(self, camera_id: int) -> dict:
+        streamer = self.streamers.get(camera_id)
+        activity = 0.0
+        if streamer:
+            activity = float(streamer.metrics.get("sealer_activity", 0.0))
+        cycles_today = self.sealer_counter_store.get_cycles_today(camera_id)
+        return {
+            "cycle_count": cycles_today,
+            "cycles_today": cycles_today,
+            "activity": activity,
+        }
+
     def delete_roi_timers(self, camera_id: int) -> None:
         self.roi_timer_store.delete_camera(camera_id)
         self.roi_people_counter_store.delete_camera(camera_id)
         self.package_counter_store.delete_camera(camera_id)
+        self.sealer_counter_store.delete_camera(camera_id)
+        self.rod_counter_store.delete_camera(camera_id)
 
     def start_stream(self, camera: CameraSchema) -> bool:
         if not camera.enabled:
@@ -294,12 +398,21 @@ class FaceStreamManager:
                 return False
 
             package_engine = None
-            if getattr(camera, "package_detection_enabled", False):
+            rod_pose_engine = None
+            pkg_enabled = bool(getattr(camera, "package_detection_enabled", False))
+            if pkg_enabled:
                 try:
                     package_engine = get_package_detection_service().acquire()
                     self._package_camera_ids.add(camera.id)
                 except RuntimeError as exc:
                     log.error(f"Package detection unavailable for cam{camera.id}: {exc}")
+                    return False
+                try:
+                    rod_pose_engine = get_rod_pose_service().acquire()
+                    self._rod_camera_ids.add(camera.id)
+                except RuntimeError as exc:
+                    log.error(f"Rod pose unavailable for cam{camera.id}: {exc}")
+                    self._release_package_if_needed(camera.id)
                     return False
 
             streamer = FaceAnnotatedStreamer(
@@ -308,15 +421,19 @@ class FaceStreamManager:
                 self.face_store,
                 person_engine=self.person_engine,
                 package_engine=package_engine,
+                rod_pose_engine=rod_pose_engine,
                 roi_timer_store=self.roi_timer_store,
                 people_counter_store=self.people_counter_store,
                 roi_people_counter_store=self.roi_people_counter_store,
                 package_counter_store=self.package_counter_store,
+                sealer_counter_store=self.sealer_counter_store,
+                rod_counter_store=self.rod_counter_store,
                 roi_switch_seconds=self.cfg.ROI_TIMER_SWITCH_SEC,
                 roi_reset_grace_seconds=self.cfg.ROI_TIMER_RESET_GRACE_SEC,
             )
             if not streamer.start():
                 self._release_package_if_needed(camera.id)
+                self._release_rod_if_needed(camera.id)
                 return False
             self.streamers[camera.id] = streamer
             log.info(
@@ -333,6 +450,7 @@ class FaceStreamManager:
         if not streamer:
             return False
         self._release_package_if_needed(camera_id)
+        self._release_rod_if_needed(camera_id)
         streamer.stop()
         return True
 
@@ -505,6 +623,9 @@ class FaceStreamManager:
                     ),
                     "packages_count": metrics.get("packages_count", 0) if metrics else 0,
                     "labels_count": metrics.get("labels_count", 0) if metrics else 0,
+                    "rod_press_count": metrics.get("rod_press_count", 0) if metrics else 0,
+                    "rod_angle": metrics.get("rod_angle", 0.0) if metrics else 0.0,
+                    "rod_ref_dA": metrics.get("rod_ref_dA", 0.0) if metrics else 0.0,
                 }
             )
         return statuses
