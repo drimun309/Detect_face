@@ -84,10 +84,10 @@ class DetectionSettingsSchema(BaseModel):
         1,
         ge=1,
         le=30,
-        description="Устарело: всегда 1 (детекция на каждом кадре трансляции)",
+        description="Детекция каждый N-й кадр: 1 = каждый (боксы синхронны), 2/4/... = меньше CPU",
     )
     stream_fps: int = Field(
-        10, ge=1, le=30, description="FPS детекции и исходящего потока (1:1)"
+        10, ge=1, le=30, description="FPS исходящего потока (ffmpeg / веб)"
     )
     stream_width: int = Field(1280, ge=320, le=2560)
     stream_height: int = Field(720, ge=240, le=1440)

@@ -341,7 +341,7 @@
                 <h2 class="section-title" data-i18n="sectionStream">Поток и производительность</h2>
                 <div class="form-grid">
                   <div class="form-group">
-                    <label for="stream_fps" data-i18n="streamFps">FPS (детекция = трансляция)</label>
+                    <label for="stream_fps" data-i18n="streamFps">FPS потока</label>
                     <input
                       id="stream_fps"
                       name="stream_fps"
@@ -353,7 +353,23 @@
                     />
                     <p class="help-text" data-i18n="streamFpsHelp"></p>
                   </div>
-                  <input type="hidden" id="stream_frame_interval" name="stream_frame_interval" value="1" />
+                  <div class="form-group">
+                    <label for="stream_frame_interval" data-i18n="frameInterval">Частота кадров для обработки</label>
+                    <select
+                      id="stream_frame_interval"
+                      name="stream_frame_interval"
+                      class="form-select"
+                    >
+                      <option value="1">1 (каждый кадр)</option>
+                      <option value="2">2</option>
+                      <option value="4">4</option>
+                      <option value="8">8</option>
+                      <option value="12">12</option>
+                      <option value="16">16</option>
+                      <option value="20">20</option>
+                    </select>
+                    <p class="help-text" data-i18n="frameIntervalHelp"></p>
+                  </div>
                   <div class="form-group">
                     <label for="stream_resolution" data-i18n="streamResolution">Разрешение</label>
                     <select id="stream_resolution" name="stream_resolution" class="form-select">

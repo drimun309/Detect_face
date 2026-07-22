@@ -72,7 +72,8 @@ class FaceStreamerConfig:
     output_size: tuple[int, int] = (1280, 720)
     detection_mode: Literal["face", "person", "face_person"] = "face"
     fps: int = 10
-    frame_interval: int = 2
+    # 1 = every frame (boxes in sync); 2,4,... = less CPU, boxes may lag
+    frame_interval: int = 1
     det_conf: float = 0.25
     det_nms: float = 0.45
     distance: float = 0.5
@@ -143,11 +144,13 @@ class FaceAnnotatedStreamer:
         self.is_running = False
         self.capture: cv2.VideoCapture | None = None
         self.ffmpeg_process: subprocess.Popen | None = None
-        self.frame_queue: Queue = Queue(maxsize=2)
+        # Latest-frame queue (drop old) — same as analiz AnnotatedRtspStreamer
+        self.frame_queue: Queue = Queue(maxsize=1)
         self.reader_thread: threading.Thread | None = None
         self.worker_thread: threading.Thread | None = None
 
         self._frame_idx = 0
+        self._last_annotated_frame: np.ndarray | None = None
         self._last_boxes: list[list[int]] = []
         self._last_scores: list[float] = []
         self._last_categories: list[str] = []
@@ -172,12 +175,17 @@ class FaceAnnotatedStreamer:
             "rod_ref_dA": 0.0,
             "rod_armed": True,
             "enrolled_faces": face_store.count,
+            "ingest_fps": 0.0,
             "infer_fps": 0.0,
             "encode_fps": 0.0,
+            "dropped_frames": 0,
+            "total_frames": 0,
             "errors": 0,
         }
+        self._ingest_count = 0
         self._infer_count = 0
         self._encode_count = 0
+        self._last_ingest_ts = time.time()
         self._last_infer_ts = time.time()
         self._last_encode_ts = time.time()
         self._source_size: tuple[int, int] | None = None
@@ -1163,8 +1171,9 @@ class FaceAnnotatedStreamer:
             self.capture = None
 
     def _reader_loop(self) -> None:
+        """Reader: drain RTSP buffer, keep latest, drop old queue frame (analiz scheme)."""
         width, height = self.config.output_size
-        interval = 1.0 / max(self.config.fps, 1)
+        frame_interval = 1.0 / max(self.config.fps, 1)
         empty_reads = 0
 
         while self.is_running:
@@ -1175,7 +1184,7 @@ class FaceAnnotatedStreamer:
                     continue
 
             latest = None
-            for _ in range(3):
+            for _ in range(5):
                 ret, frame = self.capture.read()
                 if ret and frame is not None and frame.size > 0:
                     latest = frame
@@ -1187,61 +1196,77 @@ class FaceAnnotatedStreamer:
                 if empty_reads >= 15:
                     self._disconnect_rtsp()
                     empty_reads = 0
-                time.sleep(0.05)
+                time.sleep(0.1)
                 continue
             empty_reads = 0
 
             resized = cv2.resize(latest, (width, height), interpolation=cv2.INTER_LINEAR)
             try:
-                if self.frame_queue.full():
-                    try:
-                        self.frame_queue.get_nowait()
-                    except Empty:
-                        pass
+                try:
+                    self.frame_queue.get_nowait()
+                    self.metrics["dropped_frames"] += 1
+                except Empty:
+                    pass
                 self.frame_queue.put_nowait(resized)
+                self.metrics["total_frames"] += 1
+                self._ingest_count += 1
             except Exception:
                 pass
-            time.sleep(interval * 0.5)
+
+            now = time.time()
+            elapsed = now - self._last_ingest_ts
+            if elapsed >= 1.0:
+                self.metrics["ingest_fps"] = self._ingest_count / elapsed
+                self._ingest_count = 0
+                self._last_ingest_ts = now
+
+            # Read faster than target FPS so queue always has a fresh frame
+            time.sleep(frame_interval * 0.5)
 
     def _worker_loop(self) -> None:
-        width, height = self.config.output_size
-        frame_bytes = width * height * 3
-        interval = 1.0 / max(self.config.fps, 1)
-
+        """YOLO every N-th frame; on skips re-send last annotated (analiz scheme)."""
         while self.is_running:
             try:
-                frame = self.frame_queue.get(timeout=0.2)
+                frame = self.frame_queue.get(timeout=0.1)
             except Empty:
                 continue
 
             self._frame_idx += 1
-            # 1:1 — детекция на каждом кадре, который уходит в трансляцию
-            try:
-                infer_start = time.time()
-                self._run_inference(frame)
-                elapsed = time.time() - infer_start
-                self._infer_count += 1
-                if elapsed > 0:
-                    self.metrics["infer_fps"] = 0.7 * self.metrics["infer_fps"] + 0.3 * (
-                        1.0 / elapsed
-                    )
-            except Exception as exc:
-                log.error(f"[cam {self.config.camera_id}] infer error: {exc}")
-                self.metrics["errors"] += 1
+            interval_n = max(int(self.config.frame_interval), 1)
+            run_infer = (self._frame_idx % interval_n == 0) or (
+                self._last_annotated_frame is None
+            )
 
-            annotated = self._annotate(frame)
-
-            if self.ffmpeg_process and self.ffmpeg_process.stdin:
+            if run_infer:
                 try:
-                    self.ffmpeg_process.stdin.write(annotated.tobytes())
+                    self._run_inference(frame)
+                    self._infer_count += 1
+                except Exception as exc:
+                    log.error(f"[cam {self.config.camera_id}] infer error: {exc}")
+                    self.metrics["errors"] += 1
+
+                annotated = self._annotate(frame)
+                self._last_annotated_frame = annotated.copy()
+                frame_to_send = annotated
+            else:
+                # Do not draw stale boxes on a new frame — re-send last annotated
+                frame_to_send = self._last_annotated_frame
+
+            now = time.time()
+            elapsed_infer = now - self._last_infer_ts
+            if elapsed_infer >= 1.0:
+                self.metrics["infer_fps"] = self._infer_count / elapsed_infer
+                self._infer_count = 0
+                self._last_infer_ts = now
+
+            if (
+                frame_to_send is not None
+                and self.ffmpeg_process
+                and self.ffmpeg_process.stdin
+            ):
+                try:
+                    self.ffmpeg_process.stdin.write(frame_to_send.tobytes())
                     self._encode_count += 1
-                    now = time.time()
-                    if now - self._last_encode_ts >= 1.0:
-                        self.metrics["encode_fps"] = self._encode_count / (
-                            now - self._last_encode_ts
-                        )
-                        self._encode_count = 0
-                        self._last_encode_ts = now
                 except Exception as exc:
                     log.error(f"[cam {self.config.camera_id}] ffmpeg write: {exc}")
                     self.metrics["errors"] += 1
@@ -1252,7 +1277,21 @@ class FaceAnnotatedStreamer:
                         self.is_running = False
                         break
 
-            time.sleep(max(0.0, interval * 0.2))
+            elapsed_enc = now - self._last_encode_ts
+            if elapsed_enc >= 1.0:
+                self.metrics["encode_fps"] = self._encode_count / elapsed_enc
+                self._encode_count = 0
+                self._last_encode_ts = now
+
+            if self.metrics["total_frames"] > 0 and self.metrics["total_frames"] % 100 == 0:
+                log.info(
+                    f"[cam {self.config.camera_id}] "
+                    f"ingest={self.metrics['ingest_fps']:.1f} "
+                    f"infer={self.metrics['infer_fps']:.1f} "
+                    f"encode={self.metrics['encode_fps']:.1f} "
+                    f"dropped={self.metrics['dropped_frames']} "
+                    f"interval={interval_n}"
+                )
 
     def start(self) -> bool:
         if self.is_running:

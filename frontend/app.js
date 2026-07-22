@@ -219,10 +219,11 @@
       frDistance: "Порог расстояния (cosine)",
       frDistanceHelp:
         "Меньше — строже совпадение (меньше ложных имён). Типично 0.4–0.75.",
-      frameInterval: "Каждый N-й кадр",
-      frameIntervalHelp: "Больше не используется: детекция = FPS трансляции (1:1).",
-      streamFps: "FPS (детекция = трансляция)",
-      streamFpsHelp: "Одна частота: YOLO и картинка в браузере. 10 = 10 детекций/сек и 10 кадров в веб. Меньше — легче CPU.",
+      frameInterval: "Частота кадров для обработки",
+      frameIntervalHelp:
+        "1 = YOLO на каждом кадре (боксы синхронны). 2, 4… = реже детекция, меньше CPU; при пропуске повторяется последний отрисованный кадр.",
+      streamFps: "FPS потока",
+      streamFpsHelp: "Частота исходящего видео в браузер (ffmpeg). Не зависит от частоты детекции.",
       streamResolution: "Разрешение",
       res720: "1280×720 (HD)",
       res1080: "1920×1080 (Full HD)",
@@ -504,10 +505,11 @@
       minDetScoreHelp: "Low-score faces skip embedding match.",
       frDistance: "Distance threshold (cosine)",
       frDistanceHelp: "Lower = stricter. Typical 0.4–0.75.",
-      frameInterval: "Every N-th frame",
-      frameIntervalHelp: "Unused: detection = stream FPS (1:1).",
-      streamFps: "FPS (detection = stream)",
-      streamFpsHelp: "One rate: YOLO and browser video. 10 = 10 detections/sec and 10 frames to web. Lower = less CPU.",
+      frameInterval: "Processing frame interval",
+      frameIntervalHelp:
+        "1 = YOLO every frame (boxes in sync). 2, 4… = less CPU; skipped frames re-send the last annotated frame.",
+      streamFps: "Stream FPS",
+      streamFpsHelp: "Outgoing video rate to the browser (ffmpeg). Independent of detection rate.",
       streamResolution: "Resolution",
       res720: "1280×720 (HD)",
       res1080: "1920×1080 (Full HD)",
@@ -702,7 +704,7 @@
         distRange.value = s.fr_distance;
         distVal.textContent = s.fr_distance;
         form.min_det_score.value = s.min_det_score;
-        form.stream_frame_interval.value = "1";
+        form.stream_frame_interval.value = String(s.stream_frame_interval || 1);
         form.stream_fps.value = s.stream_fps;
         const res = s.stream_width + "x" + s.stream_height;
         if (form.stream_resolution.querySelector('option[value="' + res + '"]')) {
@@ -767,7 +769,7 @@
         fr_det_nms: Number(form.fr_det_nms.value),
         fr_distance: Number(distRange.value),
         min_det_score: Number(form.min_det_score.value),
-        stream_frame_interval: 1,
+        stream_frame_interval: Number(form.stream_frame_interval.value || 1),
         stream_fps: Number(form.stream_fps.value),
         stream_width: Number(parts[0]),
         stream_height: Number(parts[1]),

@@ -27,7 +27,6 @@ class SettingsApi:
         async def update_detection_settings(
             payload: DetectionSettingsSchema,
         ) -> DetectionSettingsSchema:
-            payload.stream_frame_interval = 1
             saved = self.store.save(payload)
             try:
                 manager = get_stream_manager()

@@ -111,9 +111,8 @@ class FaceStreamManager:
         self.cfg.FR_DET_NMS = settings.fr_det_nms
         self.cfg.FR_DISTANCE = settings.fr_distance
         self.cfg.FR_MIN_DET_SCORE = settings.min_det_score
-        self.cfg.STREAM_FRAME_INTERVAL = 1
+        self.cfg.STREAM_FRAME_INTERVAL = settings.stream_frame_interval
         self.cfg.STREAM_FPS = settings.stream_fps
-        settings.stream_frame_interval = 1
         self.cfg.STREAM_WIDTH = settings.stream_width
         self.cfg.STREAM_HEIGHT = settings.stream_height
         self.cfg.STREAM_SHOW_UNKNOWN_DISTANCE = settings.stream_show_unknown_distance
@@ -134,7 +133,7 @@ class FaceStreamManager:
             streamer.config.det_nms = settings.fr_det_nms
             streamer.config.distance = settings.fr_distance
             streamer.config.min_det_score = settings.min_det_score
-            streamer.config.frame_interval = 1
+            streamer.config.frame_interval = settings.stream_frame_interval
             streamer.config.fps = settings.stream_fps
             streamer.config.show_unknown_distance = settings.stream_show_unknown_distance
             streamer.config.output_size = new_size
@@ -603,6 +602,10 @@ class FaceStreamManager:
                     ),
                     "infer_fps": metrics.get("infer_fps", 0.0) if metrics else 0.0,
                     "encode_fps": metrics.get("encode_fps", 0.0) if metrics else 0.0,
+                    "ingest_fps": metrics.get("ingest_fps", 0.0) if metrics else 0.0,
+                    "dropped_frames": (
+                        metrics.get("dropped_frames", 0) if metrics else 0
+                    ),
                     "errors": metrics.get("errors", 0) if metrics else 0,
                     "enrolled_faces": (
                         metrics.get("enrolled_faces", self.face_store.count)
