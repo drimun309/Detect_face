@@ -1,8 +1,15 @@
 """Main function."""
 
+import os
 import rootutils
 
 ROOT = rootutils.autosetup()
+
+# Ultralytics/YOLOv5 auto-pip breaks pinned opencv/numpy inside the container.
+os.environ.setdefault("YOLO_AUTOINSTALL", "False")
+os.environ.setdefault("YOLOv5_AUTOINSTALL", "False")
+
+import src.utils.cv2_compat  # noqa: F401 — ultralytics needs cv2.imshow
 
 from contextlib import asynccontextmanager
 

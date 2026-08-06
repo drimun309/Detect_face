@@ -318,11 +318,9 @@
         let show = !!(cfg && cfg.enabled);
         if (!show) {
           try {
-            const pkg = await request(
-              API + "/cameras/" + camId + "/package-detection"
-            );
-            show = !!(pkg && pkg.package_detection_enabled);
-          } catch (_pkg) {
+            const rod = await request(API + "/cameras/" + camId + "/rod-pose");
+            show = !!(rod && rod.rod_pose_enabled);
+          } catch (_rod) {
             show = false;
           }
         }

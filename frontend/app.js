@@ -93,15 +93,18 @@
       packageDetectionOff: "Пакеты: выкл.",
       packageDetectionOn: "Пакеты: вкл.",
       packageDetectionHint: "Переключение…",
+      rodPoseOff: "Ручка YOLO: выкл.",
+      rodPoseOn: "Ручка YOLO: вкл.",
+      rodPoseHint: "Переключение…",
       sealerRoiEdit: "ROI ручки",
       sealerRoiClear: "Очистить ручку",
-      sealerRoiActive: "Запайщик: {n} циклов",
+      sealerRoiActive: "Готовые изделия: {n}",
       sealerRoiNotConfigured: "ROI ручки: не настроен",
       sealerRoiDrawing: "Нарисуйте прямоугольник на ручке в покое (перетащите мышью)",
       sealerRoiIncomplete: "Для зоны запайщика нужен прямоугольник",
       sealerRoiClearConfirm: "Удалить зону ручки запайщика?",
       sealerRoiNeedDetection: "Откройте просмотр с детекцией (кнопка «Детекция» на камере)",
-      sealerRoiStats: "За смену (7–19): {n} · активность {act}",
+      sealerRoiStats: "За смену (7–19): {n} · угол {act}°",
       delete: "Удалить",
       saveCamera: "Сохранить камеру",
       enabled: "Включена",
@@ -378,15 +381,18 @@
       packageDetectionOff: "Packages: off",
       packageDetectionOn: "Packages: on",
       packageDetectionHint: "Switching…",
+      rodPoseOff: "Handle YOLO: off",
+      rodPoseOn: "Handle YOLO: on",
+      rodPoseHint: "Switching…",
       sealerRoiEdit: "Sealer handle ROI",
       sealerRoiClear: "Clear handle ROI",
-      sealerRoiActive: "Sealer: {n} cycles",
+      sealerRoiActive: "Finished products: {n}",
       sealerRoiNotConfigured: "Sealer handle ROI: not configured",
       sealerRoiDrawing: "Draw a rectangle on the handle at rest (drag with mouse)",
       sealerRoiIncomplete: "Sealer ROI needs a rectangle",
       sealerRoiClearConfirm: "Remove sealer handle ROI?",
       sealerRoiNeedDetection: "Open detection view (Detection button on the camera)",
-      sealerRoiStats: "Shift (7–19): {n} · activity {act}",
+      sealerRoiStats: "Shift (7–19): {n} · angle {act}°",
       statsSealerProducts: "Готовые изделия",
       statsSealerCycles: "Циклы",
       statsSealerSummary: "finished products: {n}",
@@ -695,7 +701,7 @@
           form.person_tracker.value = s.person_tracker || "bytetrack";
         }
         if (form.person_track_buffer) {
-          form.person_track_buffer.value = s.person_track_buffer ?? 45;
+          form.person_track_buffer.value = s.person_track_buffer ?? 90;
         }
         updateCrowdHumanOptions();
         confRange.value = Math.round(s.fr_det_conf * 100);
@@ -764,7 +770,7 @@
         person_det_model: String(form.person_det_model?.value || "yolov8s"),
         crowdhuman_det_type: String(form.crowdhuman_det_type?.value || "both"),
         person_tracker: String(form.person_tracker?.value || "bytetrack"),
-        person_track_buffer: Number(form.person_track_buffer?.value || 45),
+        person_track_buffer: Number(form.person_track_buffer?.value || 90),
         fr_det_conf: Math.min(1, Math.max(0.01, Number(confRange.value) / 100)),
         fr_det_nms: Number(form.fr_det_nms.value),
         fr_distance: Number(distRange.value),
@@ -892,6 +898,9 @@
   let reconnectAttempt = 0;
   let shouldReconnect = false;
   let isConnected = false;
+  let stallTimer = null;
+  let stallLastTime = 0;
+  let stallTicks = 0;
   let useDirectGo2rtc = false;
   let currentStreamName = "";
   let currentCameraId = null;
@@ -899,6 +908,7 @@
   let currentUseAnnotated = false;
   let currentStreamQualityPreset = "global";
   let packageDetectionEnabled = false;
+  let rodPoseEnabled = false;
   let recordingActive = false;
 
   function cameraQualityPreset(cam) {
@@ -1011,6 +1021,16 @@
       : t("packageDetectionOff");
   }
 
+  function updateRodPoseBtn() {
+    const btn = document.getElementById("rod-pose-btn");
+    if (!btn) return;
+    const show = currentUseAnnotated && !!currentCameraId;
+    btn.classList.toggle("hidden", !show);
+    btn.classList.toggle("btn-primary", rodPoseEnabled);
+    btn.classList.toggle("btn-secondary", !rodPoseEnabled);
+    btn.textContent = rodPoseEnabled ? t("rodPoseOn") : t("rodPoseOff");
+  }
+
   async function loadPackageDetectionState() {
     if (!currentCameraId || !currentUseAnnotated) {
       packageDetectionEnabled = false;
@@ -1029,8 +1049,30 @@
     if (window.DF_onPackageDetectionChanged) window.DF_onPackageDetectionChanged();
   }
 
+  async function loadRodPoseState() {
+    if (!currentCameraId || !currentUseAnnotated) {
+      rodPoseEnabled = false;
+      updateRodPoseBtn();
+      return;
+    }
+    try {
+      const data = await request(
+        API + "/cameras/" + currentCameraId + "/rod-pose"
+      );
+      rodPoseEnabled = !!(data && data.rod_pose_enabled);
+    } catch (_) {
+      rodPoseEnabled = false;
+    }
+    updateRodPoseBtn();
+    if (window.DF_onRodPoseChanged) window.DF_onRodPoseChanged();
+  }
+
   window.DF_getPackageDetectionEnabled = function () {
     return !!packageDetectionEnabled;
+  };
+
+  window.DF_getRodPoseEnabled = function () {
+    return !!rodPoseEnabled;
   };
 
   window.DF_getSealerRoiAvailable = function () {
@@ -1038,6 +1080,10 @@
   };
 
   window.DF_onPackageDetectionChanged = function () {
+    if (window.DF_updateSealerRoiControls) window.DF_updateSealerRoiControls();
+  };
+
+  window.DF_onRodPoseChanged = function () {
     if (window.DF_updateSealerRoiControls) window.DF_updateSealerRoiControls();
   };
 
@@ -1070,6 +1116,38 @@
       if (btn) btn.disabled = false;
       updatePackageDetectionBtn();
       if (window.DF_onPackageDetectionChanged) window.DF_onPackageDetectionChanged();
+    }
+  }
+
+  async function setRodPose(enabled) {
+    if (!currentCameraId || !currentUseAnnotated) return;
+    const btn = document.getElementById("rod-pose-btn");
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = t("rodPoseHint");
+    }
+    try {
+      const data = await request(
+        API + "/cameras/" + currentCameraId + "/rod-pose",
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ enabled: !!enabled }),
+        }
+      );
+      rodPoseEnabled = !!(data && data.rod_pose_enabled);
+      isConnected = false;
+      shouldReconnect = true;
+      reconnectAttempt = 0;
+      setTimeout(function () {
+        connectMp4();
+      }, 800);
+    } catch (err) {
+      setStatus(err.message, true);
+    } finally {
+      if (btn) btn.disabled = false;
+      updateRodPoseBtn();
+      if (window.DF_onRodPoseChanged) window.DF_onRodPoseChanged();
     }
   }
 
@@ -1169,7 +1247,41 @@
     return "ws://" + (window.location.hostname || "localhost") + ":1985/api/ws";
   }
 
+  function stopStallWatch() {
+    if (stallTimer) {
+      clearInterval(stallTimer);
+      stallTimer = null;
+    }
+    stallLastTime = 0;
+    stallTicks = 0;
+  }
+
+  function startStallWatch() {
+    stopStallWatch();
+    stallLastTime = streamVideo ? streamVideo.currentTime || 0 : 0;
+    stallTicks = 0;
+    // go2rtc stream.mp4 часто «замирает» без onerror после обрыва ffmpeg/mediamtx
+    stallTimer = setInterval(function () {
+      if (!streamVideo || !shouldReconnect || !currentStreamName) return;
+      if (streamVideo.paused) return;
+      const t = streamVideo.currentTime || 0;
+      if (t > stallLastTime + 0.04) {
+        stallLastTime = t;
+        stallTicks = 0;
+        return;
+      }
+      stallTicks += 1;
+      if (stallTicks < 5) return;
+      console.warn("[stream] stalled, reconnecting", currentStreamName);
+      stallTicks = 0;
+      isConnected = false;
+      setStreamState("connecting");
+      connectMp4();
+    }, 1000);
+  }
+
   function cleanupPeer(keepVideo) {
+    stopStallWatch();
     if (reconnectTimer) {
       clearTimeout(reconnectTimer);
       reconnectTimer = null;
@@ -1202,6 +1314,7 @@
   function connectMp4() {
     if (!currentStreamName || !streamVideo) return;
     cleanupPeer(true);
+    shouldReconnect = true;
     setStreamState("connecting");
     const url =
       window.location.origin +
@@ -1216,10 +1329,12 @@
       reconnectAttempt = 0;
       setStreamState("connected");
       setStatus(t("connecting", { name: currentStreamName }));
+      startStallWatch();
       if (window.DF_onStreamVideoReady) window.DF_onStreamVideoReady();
     };
     streamVideo.onerror = function () {
       isConnected = false;
+      stopStallWatch();
       setStreamState("error");
       scheduleReconnect();
     };
@@ -1228,6 +1343,7 @@
       .then(function () {
         isConnected = true;
         setStreamState("connected");
+        startStallWatch();
         if (window.DF_onStreamVideoReady) window.DF_onStreamVideoReady();
       })
       .catch(function (err) {
@@ -1714,6 +1830,7 @@
     currentStreamQualityPreset = "global";
     updateMaxQualityBtn();
     loadPackageDetectionState();
+    loadRodPoseState();
     loadStreamQualityState();
     window.dispatchEvent(new Event("resize"));
   }
@@ -2023,6 +2140,13 @@
   if (packageDetectionBtn) {
     packageDetectionBtn.addEventListener("click", function () {
       setPackageDetection(!packageDetectionEnabled);
+    });
+  }
+
+  const rodPoseBtn = document.getElementById("rod-pose-btn");
+  if (rodPoseBtn) {
+    rodPoseBtn.addEventListener("click", function () {
+      setRodPose(!rodPoseEnabled);
     });
   }
 

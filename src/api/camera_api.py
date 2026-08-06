@@ -13,6 +13,7 @@ from src.schema.package_detection_schema import (
     PackageDetectionUpdate,
     PackageRoiCounterItem,
 )
+from src.schema.rod_pose_schema import RodPoseResponse, RodPoseUpdate
 from src.schema.people_zone_schema import PeopleZoneConfig, PeopleZoneResponse
 from src.schema.sealer_roi_schema import SealerRoiConfig, SealerRoiResponse
 from src.schema.roi_schema import RoiResponse, RoiUpdate
@@ -282,6 +283,49 @@ class CameraApi:
                 package_detection_enabled=camera.package_detection_enabled,
                 packed_today=0,
                 packed_by_roi=[],
+            )
+
+        @self.router.get(
+            "/cameras/{camera_id}/rod-pose",
+            response_model=RodPoseResponse,
+        )
+        async def get_rod_pose(camera_id: int) -> RodPoseResponse:
+            camera = self.store.get(camera_id)
+            if not camera:
+                raise HTTPException(status_code=404, detail="Camera not found")
+            press_count = 0
+            try:
+                press_count = int(
+                    get_stream_manager().sealer_counter_store.get_cycles_today(camera_id)
+                )
+            except RuntimeError:
+                pass
+            return RodPoseResponse(
+                camera_id=camera.id,
+                rod_pose_enabled=bool(getattr(camera, "rod_pose_enabled", False)),
+                press_count=press_count,
+            )
+
+        @self.router.put(
+            "/cameras/{camera_id}/rod-pose",
+            response_model=RodPoseResponse,
+        )
+        async def update_rod_pose(
+            camera_id: int, payload: RodPoseUpdate
+        ) -> RodPoseResponse:
+            camera = self.store.set_rod_pose(camera_id, payload.enabled)
+            if not camera:
+                raise HTTPException(status_code=404, detail="Camera not found")
+            try:
+                manager = get_stream_manager()
+                if manager.is_running(camera_id):
+                    manager.restart_stream(camera)
+            except RuntimeError:
+                pass
+            return RodPoseResponse(
+                camera_id=camera.id,
+                rod_pose_enabled=bool(getattr(camera, "rod_pose_enabled", False)),
+                press_count=0,
             )
 
         @self.router.get(

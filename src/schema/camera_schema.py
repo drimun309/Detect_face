@@ -18,6 +18,7 @@ class CameraBaseSchema(BaseModel):
     enabled: bool = True
     department_id: Optional[int] = None
     package_detection_enabled: bool = False
+    rod_pose_enabled: bool = False
     stream_width: Optional[int] = Field(
         None, ge=320, le=2560, description="NULL — глобальное из настроек"
     )
@@ -49,6 +50,7 @@ class CameraUpdateSchema(BaseModel):
     enabled: Optional[bool] = None
     department_id: Optional[int] = None
     package_detection_enabled: Optional[bool] = None
+    rod_pose_enabled: Optional[bool] = None
     stream_width: Optional[int] = Field(None, ge=320, le=2560)
     stream_height: Optional[int] = Field(None, ge=240, le=1440)
 

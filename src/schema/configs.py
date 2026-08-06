@@ -61,11 +61,11 @@ class Configs(BaseSettings):
     PACKAGE_DET_CONF: float = 0.25
     PACKAGE_DET_IMGSZ: int = 960
     PACKAGE_COUNT_DWELL_SEC: float = 1.0
-    ROD_POSE_MODEL_PATH: str = "assets/best_pose.pt"
+    ROD_POSE_MODEL_PATH: str = "assets/best_pala_roi.pt"
     ROD_POSE_CONF: float = 0.25
     ROD_POSE_IMGSZ: int = 640
     SEALER_CYCLE_DWELL_SEC: float = 1.0
-    DETECTION_MODE: Literal["face", "person", "face_person"] = "face"
+    DETECTION_MODE: Literal["off", "face", "person", "face_person"] = "off"
     FR_DET_CONF: float = 0.25
     FR_DET_NMS: float = 0.45
     FR_DISTANCE: float = 0.5

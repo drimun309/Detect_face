@@ -29,6 +29,18 @@ RUN pip install --no-cache-dir --retries 5 --timeout 600 -r /tmp/requirements.tx
     -i https://pypi.tuna.tsinghua.edu.cn/simple \
     --trusted-host pypi.tuna.tsinghua.edu.cn
 
+# NumPy 1.x ABI + headless OpenCV (imshow stubbed in src/utils/cv2_compat.py).
+# Force clean install: ultralytics may leave a broken cv2 namespace otherwise.
+RUN pip uninstall -y opencv-python opencv-python-headless opencv-contrib-python opencv-contrib-python-headless || true && \
+    pip install --no-cache-dir --force-reinstall --no-deps --retries 5 --timeout 600 \
+    "opencv-python-headless==4.9.0.80" && \
+    pip install --no-cache-dir --force-reinstall --no-deps --retries 5 --timeout 600 \
+    "numpy==1.26.4" && \
+    python -c "import cv2; assert hasattr(cv2, 'VideoCapture'), 'broken cv2'"
+
+ENV YOLO_AUTOINSTALL=False
+ENV YOLOv5_AUTOINSTALL=False
+
 RUN rm /tmp/requirements.txt
 
 # CUDA libs for onnxruntime-gpu (curand, cufft, cudart from nvidia-* pip wheels)

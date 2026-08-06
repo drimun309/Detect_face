@@ -113,8 +113,16 @@
       : false;
   }
 
+  function rodPoseEnabled() {
+    return window.DF_getRodPoseEnabled ? !!window.DF_getRodPoseEnabled() : false;
+  }
+
+  function sealerCycleSourceActive() {
+    return sealerRoiConfigured() || rodPoseEnabled();
+  }
+
   function sealerStatsAvailable() {
-    return sealerMode() && (sealerRoiConfigured() || packageDetEnabled());
+    return sealerMode() && sealerCycleSourceActive();
   }
 
   function updateSealerRoiStats() {
@@ -138,10 +146,10 @@
     const show = !!cameraId && sealerMode();
     if (btn) {
       btn.classList.toggle("hidden", !show);
-      const active = isDrawingSealerRoi || sealerRoiConfigured() || packageDetEnabled();
+      const active = isDrawingSealerRoi || sealerCycleSourceActive();
       btn.classList.toggle("btn-primary", active);
       btn.classList.toggle("btn-secondary", !active);
-      if (sealerRoiConfigured() || packageDetEnabled()) {
+      if (sealerCycleSourceActive()) {
         btn.title = t("sealerRoiActive", {
           n: sealerRoi.cycles_today || sealerRoi.cycle_count || 0,
         });
@@ -688,7 +696,7 @@
         parts.push(t("peopleZoneNotConfigured"));
       }
       if (sealerMode()) {
-        if (sealerRoiConfigured() || packageDetEnabled()) {
+        if (sealerRoiConfigured() || rodPoseEnabled()) {
           parts.push(t("sealerRoiActive", { n: sealerRoi.cycles_today || sealerRoi.cycle_count || 0 }));
         } else {
           parts.push(t("sealerRoiNotConfigured"));
@@ -699,7 +707,7 @@
       el.textContent = parts.join(" · ");
       el.className =
         "roi-status" +
-        (enabled && n > 0 || peopleZoneConfigured() || sealerRoiConfigured() || packageDetEnabled()
+        (enabled && n > 0 || peopleZoneConfigured() || sealerRoiConfigured() || rodPoseEnabled() || packageDetEnabled()
           ? " active"
           : "");
     } else {

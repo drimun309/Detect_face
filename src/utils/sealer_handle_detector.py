@@ -11,8 +11,8 @@ DEFAULT_COOLDOWN_FRAMES = 8
 DEFAULT_EMA_ALPHA = 0.08
 DEFAULT_MIN_HYSTERESIS = 2.0
 DEFAULT_MIN_ACTIVE_SEC = 1.0
-DEFAULT_SPIKE_THRESHOLD = 80.0
-DEFAULT_REST_THRESHOLD = -50.0
+DEFAULT_SPIKE_THRESHOLD = 20.0
+DEFAULT_REST_THRESHOLD = -15.0
 
 
 def norm_rect_to_pixels(
@@ -105,7 +105,11 @@ class SealerMotionDetector:
         self._active_since: float | None = None
         self._counted_episode = False
 
-    def set_thresholds(self, spike_threshold: float, rest_threshold: float = DEFAULT_REST_THRESHOLD) -> None:
+    def set_thresholds(
+        self,
+        spike_threshold: float,
+        rest_threshold: float = DEFAULT_REST_THRESHOLD,
+    ) -> None:
         if spike_threshold - rest_threshold < DEFAULT_MIN_HYSTERESIS:
             rest_threshold = spike_threshold - DEFAULT_MIN_HYSTERESIS
         self.spike_threshold = float(spike_threshold)
@@ -160,12 +164,14 @@ class SealerMotionDetector:
         return fired
 
 
-def probe_thresholds_from_scores(scores: list[float], activities: list[float]) -> tuple[float, float]:
+def probe_thresholds_from_scores(
+    scores: list[float], activities: list[float]
+) -> tuple[float, float]:
     if len(activities) < 20:
         return DEFAULT_SPIKE_THRESHOLD, DEFAULT_REST_THRESHOLD
     arr = np.array(activities)
     peak = float(np.max(arr))
-    if peak < 60.0:
+    if peak < 15.0:
         return DEFAULT_SPIKE_THRESHOLD, DEFAULT_REST_THRESHOLD
     noise = float(np.percentile(arr, 60))
     spike = float(np.percentile(arr, 95))

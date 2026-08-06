@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import text
@@ -94,13 +94,31 @@ class SealerCounterStore:
             log.warning(f"sealer counter tables migration skipped: {exc}")
 
     def _today(self, ts: float) -> str:
-        return datetime.fromtimestamp(ts, TZ).date().isoformat()
+        """Дата смены Asia/Tbilisi: с 07:00 до 07:00 следующего календарного дня."""
+        dt = datetime.fromtimestamp(ts, TZ)
+        if dt.hour < VIEW_START_HOUR:
+            dt = dt - timedelta(days=1)
+        return dt.date().isoformat()
 
     def _shift_active(self, ts: float) -> bool:
         dt = datetime.fromtimestamp(ts, TZ)
         start = dt.replace(hour=VIEW_START_HOUR, minute=0, second=0, microsecond=0)
         end = dt.replace(hour=VIEW_END_HOUR, minute=0, second=0, microsecond=0)
         return start <= dt < end
+
+    def _persist_rollover_if_needed(
+        self, state: SealerCounterState, previous_day: str | None
+    ) -> None:
+        """При смене смены (07:00) зафиксировать нулевой день в counters."""
+        if previous_day is None or previous_day == state.day_date:
+            return
+        self._upsert_state(state)
+        self._flush_daily(state)
+        self.pg.session.commit()
+        log.info(
+            f"Sealer shift rollover cam{state.camera_id}: "
+            f"{previous_day} -> {state.day_date} (count=0)"
+        )
 
     def _load_state(self, camera_id: int, ts: float) -> SealerCounterState:
         row = self.pg.session.exec(
@@ -221,10 +239,45 @@ class SealerCounterStore:
         ts = time.time()
         with self._lock:
             cached = self._cache.get(camera_id)
-            if cached and cached.day_date == self._today(ts):
+            today = self._today(ts)
+            if cached and cached.day_date == today:
                 return int(cached.cycles_today)
             try:
-                state = self._load_state(camera_id, ts)
+                row = self.pg.session.exec(
+                    text(
+                        """
+                        SELECT cycles_today, day_date::text, updated_at
+                        FROM sealer_counters
+                        WHERE camera_id = :camera_id
+                        """
+                    ).bindparams(camera_id=camera_id)
+                ).first()
+                if row is None:
+                    state = SealerCounterState(
+                        camera_id=camera_id,
+                        cycles_today=0,
+                        day_date=today,
+                        updated_at=ts,
+                    )
+                else:
+                    db_day = str(row[1] or today)
+                    cycles = int(row[0] or 0)
+                    if db_day != today:
+                        cycles = 0
+                        state = SealerCounterState(
+                            camera_id=camera_id,
+                            cycles_today=0,
+                            day_date=today,
+                            updated_at=ts,
+                        )
+                        self._persist_rollover_if_needed(state, db_day)
+                    else:
+                        state = SealerCounterState(
+                            camera_id=camera_id,
+                            cycles_today=cycles,
+                            day_date=today,
+                            updated_at=float(row[2] or ts),
+                        )
                 self._cache[camera_id] = state
                 return int(state.cycles_today)
             except SQLAlchemyError:
@@ -347,3 +400,19 @@ class SealerCounterStore:
             "view_end_hour": VIEW_END_HOUR,
             "days": days,
         }
+
+
+def _shift_day_selfcheck() -> None:
+    """Дата смены: до 07:00 — вчера, с 07:00 — сегодня."""
+    store = SealerCounterStore.__new__(SealerCounterStore)
+    before = datetime(2026, 7, 23, 6, 59, 0, tzinfo=TZ).timestamp()
+    at = datetime(2026, 7, 23, 7, 0, 0, tzinfo=TZ).timestamp()
+    assert store._today(before) == "2026-07-22", store._today(before)
+    assert store._today(at) == "2026-07-23", store._today(at)
+    assert not store._shift_active(before)
+    assert store._shift_active(at)
+
+
+if __name__ == "__main__":
+    _shift_day_selfcheck()
+    print("sealer shift-day ok")

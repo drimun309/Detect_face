@@ -278,20 +278,27 @@ class RoiPeopleCounterStore:
         state.person_seconds = 0.0
         state.last_tick = ts
 
-    def _accumulate(self, state: RoiPeopleCounterState, ts: float) -> None:
+    def _accumulate(
+        self,
+        state: RoiPeopleCounterState,
+        ts: float,
+        *,
+        active: bool = True,
+    ) -> None:
         prev_ts = state.last_tick or ts
         if ts <= prev_ts:
             return
-        if self._shift_active(prev_ts):
-            dt = ts - prev_ts
-            workers = min(state.max_workers, max(0, state.current_workers))
-            if workers == 0:
-                state.seconds_0_workers += dt
-            elif workers == 1:
-                state.seconds_1_worker += dt
-            else:
-                state.seconds_2_workers += dt
-            state.person_seconds += workers * dt
+        if not active or not self._shift_active(prev_ts):
+            return
+        dt = ts - prev_ts
+        workers = min(state.max_workers, max(0, state.current_workers))
+        if workers == 0:
+            state.seconds_0_workers += dt
+        elif workers == 1:
+            state.seconds_1_worker += dt
+        else:
+            state.seconds_2_workers += dt
+        state.person_seconds += workers * dt
 
     def sync_camera_rois(self, camera_id: int, roi_keys: list[str]) -> None:
         keys_set = set(roi_keys)
@@ -333,6 +340,8 @@ class RoiPeopleCounterStore:
         target_workers: int,
         max_workers: int = ROI_MAX_WORKERS,
         now: float | None = None,
+        *,
+        accumulate: bool = True,
     ) -> RoiPeopleCounterState:
         ts = now or time.time()
         max_workers = min(ROI_MAX_WORKERS, max(1, int(max_workers or ROI_MAX_WORKERS)))
@@ -345,7 +354,7 @@ class RoiPeopleCounterStore:
             state.max_workers = max_workers
             try:
                 self._reset_day_if_needed(state, ts)
-                self._accumulate(state, ts)
+                self._accumulate(state, ts, active=accumulate)
                 before = state.current_workers
                 after = min(max_workers, max(0, int(target_workers)))
                 if after != before:

@@ -123,7 +123,9 @@ class RecordingApi:
         if store is None:
             return False
         enabled, *_rest = store.get_sealer_roi_runtime(camera_id)
-        return bool(enabled)
+        camera = store.get(camera_id)
+        rod_pose_enabled = bool(getattr(camera, "rod_pose_enabled", False)) if camera else False
+        return bool(enabled or rod_pose_enabled)
 
     def setup(self) -> None:
         @self.router.get("/settings/recording", response_model=RecordingSettingsSchema)

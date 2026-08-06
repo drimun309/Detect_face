@@ -52,19 +52,11 @@ class FaceStreamManager:
         self._package_camera_ids: set[int] = set()
         self._rod_camera_ids: set[int] = set()
 
-        self.engine = FrOnnxEngine(
-            det_engine_path=cfg.FR_DET_ENGINE_PATH,
-            rec_engine_path=cfg.FR_REC_ENGINE_PATH,
-            det_max_end2end=cfg.FR_DET_MAX_END2END,
-            provider=cfg.FR_PROVIDER,
-        )
-        self.engine.setup()
+        self.engine: FrOnnxEngine | None = None
         self._person_model_id = ""
         self._person_tracker = "bytetrack"
-        self._person_track_buffer = 45
-        self.person_engine = self._create_person_engine(
-            infer_person_model_id(cfg.PERSON_DET_ENGINE_PATH)
-        )
+        self._person_track_buffer = 90
+        self.person_engine = None
 
         self.db = PgSyncDb(
             host=cfg.POSTGRES_HOST,
@@ -92,9 +84,41 @@ class FaceStreamManager:
         self.cfg.PERSON_DET_ENGINE_PATH = path
         return engine
 
+    def _apply_fr_engine(self, mode: str) -> None:
+        if mode not in ("face", "face_person"):
+            self.engine = None
+            return
+        if self.engine is not None:
+            return
+        try:
+            self.engine = FrOnnxEngine(
+                det_engine_path=self.cfg.FR_DET_ENGINE_PATH,
+                rec_engine_path=self.cfg.FR_REC_ENGINE_PATH,
+                det_max_end2end=self.cfg.FR_DET_MAX_END2END,
+                provider=self.cfg.FR_PROVIDER,
+            )
+            self.engine.setup()
+            log.info("Face recognition engine loaded")
+        except Exception as exc:
+            self.engine = None
+            log.warning(f"Face engine skipped: {exc}")
+
     def _apply_person_model_settings(self, settings: DetectionSettingsSchema) -> None:
-        if settings.person_det_model != self._person_model_id:
-            self.person_engine = self._create_person_engine(settings.person_det_model)
+        mode = settings.detection_mode
+        if mode not in ("person", "face_person"):
+            self.person_engine = None
+            self._person_model_id = ""
+            for streamer in self.streamers.values():
+                streamer.person_engine = None
+            return
+        if settings.person_det_model != self._person_model_id or self.person_engine is None:
+            try:
+                self.person_engine = self._create_person_engine(settings.person_det_model)
+            except Exception as exc:
+                self.person_engine = None
+                self._person_model_id = ""
+                log.warning(f"Person detector skipped: {exc}")
+                return
             for streamer in self.streamers.values():
                 streamer.person_engine = self.person_engine
             log.info(f"Person detector switched to {settings.person_det_model}")
@@ -107,6 +131,7 @@ class FaceStreamManager:
         new_size = (settings.stream_width, settings.stream_height)
 
         self.cfg.DETECTION_MODE = settings.detection_mode
+        self._apply_fr_engine(settings.detection_mode)
         self.cfg.FR_DET_CONF = settings.fr_det_conf
         self.cfg.FR_DET_NMS = settings.fr_det_nms
         self.cfg.FR_DISTANCE = settings.fr_distance
@@ -241,7 +266,7 @@ class FaceStreamManager:
             package_det_conf=self.cfg.PACKAGE_DET_CONF,
             package_det_imgsz=self.cfg.PACKAGE_DET_IMGSZ,
             package_count_dwell_sec=self.cfg.PACKAGE_COUNT_DWELL_SEC,
-            rod_pose_enabled=bool(getattr(camera, "package_detection_enabled", False)),
+            rod_pose_enabled=bool(getattr(camera, "rod_pose_enabled", False)),
             rod_pose_conf=self.cfg.ROD_POSE_CONF,
             rod_pose_imgsz=self.cfg.ROD_POSE_IMGSZ,
             sealer_roi_enabled=sealer_enabled,
@@ -302,6 +327,11 @@ class FaceStreamManager:
 
     def update_package_detection(self, camera_id: int, enabled: bool) -> None:
         streamer = self.streamers.get(camera_id)
+        if streamer:
+            streamer.update_package_detection(enabled)
+
+    def update_rod_pose(self, camera_id: int, enabled: bool) -> None:
+        streamer = self.streamers.get(camera_id)
         if enabled:
             try:
                 rod_engine = get_rod_pose_service().acquire()
@@ -310,12 +340,12 @@ class FaceStreamManager:
                     streamer.rod_pose_engine = rod_engine
             except RuntimeError as exc:
                 log.error(f"Rod pose unavailable for cam{camera_id}: {exc}")
+                raise
         else:
             if streamer:
                 streamer.rod_pose_engine = None
             self._release_rod_if_needed(camera_id)
         if streamer:
-            streamer.update_package_detection(enabled)
             streamer.update_rod_pose(enabled)
 
     def update_roi_polygons(
@@ -351,8 +381,8 @@ class FaceStreamManager:
         y: float,
         w: float,
         h: float,
-        spike_thresh: float = 8.0,
-        rest_thresh: float = 2.0,
+        spike_thresh: float = 20.0,
+        rest_thresh: float = -15.0,
         cooldown_frames: int = 8,
     ) -> None:
         streamer = self.streamers.get(camera_id)
@@ -399,6 +429,7 @@ class FaceStreamManager:
             package_engine = None
             rod_pose_engine = None
             pkg_enabled = bool(getattr(camera, "package_detection_enabled", False))
+            rod_enabled = bool(getattr(camera, "rod_pose_enabled", False))
             if pkg_enabled:
                 try:
                     package_engine = get_package_detection_service().acquire()
@@ -406,6 +437,7 @@ class FaceStreamManager:
                 except RuntimeError as exc:
                     log.error(f"Package detection unavailable for cam{camera.id}: {exc}")
                     return False
+            if rod_enabled:
                 try:
                     rod_pose_engine = get_rod_pose_service().acquire()
                     self._rod_camera_ids.add(camera.id)
@@ -438,7 +470,7 @@ class FaceStreamManager:
             log.info(
                 f"Started face stream cam{camera.id} ({camera.name}) "
                 f"model={self._person_model_id} "
-                f"package_det={getattr(camera, 'package_detection_enabled', False)} "
+                f"package_det={pkg_enabled} rod_pose={rod_enabled} "
                 f"-> {streamer.config.publish_url}"
             )
             return True
@@ -623,6 +655,9 @@ class FaceStreamManager:
                     "max_quality": max_q,
                     "package_detection_enabled": bool(
                         getattr(camera, "package_detection_enabled", False)
+                    ),
+                    "rod_pose_enabled": bool(
+                        getattr(camera, "rod_pose_enabled", False)
                     ),
                     "packages_count": metrics.get("packages_count", 0) if metrics else 0,
                     "labels_count": metrics.get("labels_count", 0) if metrics else 0,

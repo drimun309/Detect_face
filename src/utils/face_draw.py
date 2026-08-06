@@ -60,11 +60,7 @@ def format_face_label(
 
 
 def format_person_label(score: float, track_id: int | None = None, predicted: bool = False) -> str:
-    base = f"работник {score:.2f}"
-    if track_id is None:
-        return base
-    mark = "~" if predicted else ""
-    return f"ID {track_id}{mark} {base}"
+    return ""
 
 
 def format_head_label(score: float, track_id: int | None = None, predicted: bool = False) -> str:
@@ -198,24 +194,44 @@ def draw_sealer_cycle_badge(
     frame: np.ndarray,
     cycle_count: int,
     activity: float = 0.0,
+    *,
+    angle_deg: float | None = None,
+    e_count: int | None = None,
+    ang_count: int | None = None,
 ) -> np.ndarray:
-    text = f"Запайщик за смену: {int(cycle_count)} · акт. {activity:.1f}"
+    # как в stats / sealer_counters: готовые изделия
+    if angle_deg is not None:
+        main = f"Готовые изделия за смену: {int(cycle_count)} · угол {angle_deg:.1f}°"
+    else:
+        main = f"Готовые изделия за смену: {int(cycle_count)} · акт. {activity:.1f}"
+    lines: list[str] = []
+    if e_count is not None:
+        lines.append(f"ROI: {int(e_count)}")
+    if ang_count is not None:
+        lines.append(f"угол: {int(ang_count)}")
+    lines.append(main)
+
     font_size = 20
     padding = 10
     margin = 12
+    line_gap = 4
     rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     pil = Image.fromarray(rgb)
     draw = ImageDraw.Draw(pil)
     font = get_cyrillic_font(font_size)
-    bbox = draw.textbbox((0, 0), text, font=font)
-    tw = bbox[2] - bbox[0]
-    th = bbox[3] - bbox[1]
-    box_w = tw + padding * 2
-    box_h = th + padding * 2
+    sizes = [draw.textbbox((0, 0), s, font=font) for s in lines]
+    widths = [b[2] - b[0] for b in sizes]
+    heights = [b[3] - b[1] for b in sizes]
+    box_w = max(widths) + padding * 2
+    box_h = sum(heights) + line_gap * (len(lines) - 1) + padding * 2
     x = margin
     y = margin + 52
     draw.rectangle([x, y, x + box_w, y + box_h], fill=(20, 20, 20))
-    draw.text((x + padding, y + padding), text, font=font, fill=(80, 220, 255))
+    cy = y + padding
+    for i, s in enumerate(lines):
+        color = (80, 220, 255) if i == len(lines) - 1 else (180, 200, 220)
+        draw.text((x + padding, cy), s, font=font, fill=color)
+        cy += heights[i] + line_gap
     return cv2.cvtColor(np.array(pil), cv2.COLOR_RGB2BGR)
 
 
@@ -246,39 +262,47 @@ def draw_rod_pose_overlay(
     top: tuple[float, float],
     bottom: tuple[float, float],
     *,
-    ema_angle: float | None,
-    ref_dA: float,
-    press_count: int,
-    armed: bool,
+    ema_angle: float | None = None,
+    ref_dA: float = 0.0,
+    press_count: int = 0,
+    armed: bool = True,
+    contour: list[tuple[float, float]] | None = None,
+    roi: list[list[float]] | None = None,
 ) -> np.ndarray:
+    """Рисует палку и авто-ROI как в palka_seg_roi."""
+    _ = (ema_angle, ref_dA, press_count)  # оставлены для совместимости вызовов
     out = frame.copy()
+    h, w = out.shape[:2]
     p1 = (int(round(top[0])), int(round(top[1])))
     p2 = (int(round(bottom[0])), int(round(bottom[1])))
-    color_bgr = (0, 200, 255) if armed else (0, 140, 255)
-    color_rgb = (color_bgr[2], color_bgr[1], color_bgr[0])
-    cv2.line(out, p1, p2, (0, 255, 120), 3)
-    cv2.circle(out, p1, 6, (0, 200, 255), -1)
-    cv2.circle(out, p2, 6, (0, 120, 255), -1)
+    color_bgr = (0, 255, 128) if armed else (0, 180, 255)
 
-    # Компактная подпись у палки — как у ROI ручки
-    label = f"За смену: {int(press_count)}"
-    font_size = 18
-    padding = 4
-    rgb = cv2.cvtColor(out, cv2.COLOR_BGR2RGB)
-    pil = Image.fromarray(rgb)
-    draw = ImageDraw.Draw(pil)
-    font = get_cyrillic_font(font_size)
-    bbox = draw.textbbox((0, 0), label, font=font)
-    tw = bbox[2] - bbox[0]
-    th = bbox[3] - bbox[1]
-    tx = min(p1[0], p2[0])
-    ty = max(2, min(p1[1], p2[1]) - th - padding * 2 - 4)
-    draw.rectangle(
-        [tx, ty, tx + tw + padding * 2, ty + th + padding * 2],
-        fill=(20, 20, 20),
-    )
-    draw.text((tx + padding, ty + padding), label, font=font, fill=color_rgb)
-    return cv2.cvtColor(np.array(pil), cv2.COLOR_RGB2BGR)
+    # Авто-ROI (ориентированный полигон вокруг палки).
+    if roi and len(roi) >= 3:
+        roi_pts = np.array(
+            [[int(round(p[0] * w)), int(round(p[1] * h))] for p in roi],
+            dtype=np.int32,
+        )
+        overlay = out.copy()
+        cv2.fillPoly(overlay, [roi_pts], (30, 210, 255))
+        out = cv2.addWeighted(overlay, 0.12, out, 0.88, 0)
+        cv2.polylines(out, [roi_pts], True, (30, 210, 255), 2, cv2.LINE_AA)
+
+    # Полигон строго по точкам сегментации.
+    if contour and len(contour) >= 3:
+        pts = np.array(
+            [[int(round(x)), int(round(y))] for x, y in contour],
+            dtype=np.int32,
+        )
+        overlay = out.copy()
+        cv2.fillPoly(overlay, [pts], color_bgr)
+        out = cv2.addWeighted(overlay, 0.20, out, 0.80, 0)
+        cv2.polylines(out, [pts], True, color_bgr, 3, cv2.LINE_AA)
+
+    cv2.line(out, p1, p2, (255, 255, 0), 2, cv2.LINE_AA)
+    cv2.circle(out, p1, 6, (0, 255, 255), -1, cv2.LINE_AA)  # S
+    cv2.circle(out, p2, 6, (255, 0, 255), -1, cv2.LINE_AA)  # E (событие: выход из ROI)
+    return out
 
 
 def draw_roi_polygons(
@@ -358,7 +382,8 @@ def draw_detections(
         cat = (category or "face").lower()
         if cat == "person":
             color = (255, 170, 0)
-            label = ""
+            track_id, predicted = _parse_track_meta(name)
+            label = format_person_label(score, track_id=track_id, predicted=predicted)
         elif cat == "head":
             color = (68, 68, 255)
             label = ""

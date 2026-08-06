@@ -41,9 +41,9 @@ class RecordingSettingsSchema(BaseModel):
 class DetectionSettingsSchema(BaseModel):
     """Параметры точности детекции и распознавания лиц."""
 
-    detection_mode: Literal["face", "person", "face_person"] = Field(
-        "face",
-        description="Режим детекции: только лица, только люди или вместе",
+    detection_mode: Literal["off", "face", "person", "face_person"] = Field(
+        "off",
+        description="Режим детекции: off / лица / люди / вместе",
     )
     person_det_model: Literal[
         "yolov8s", "crowdhuman_yolov5m", "yolo26n", "package_label_stage2"
@@ -60,9 +60,9 @@ class DetectionSettingsSchema(BaseModel):
         description="Трекер людей: off / bytetrack / botsort / sort (Kalman)",
     )
     person_track_buffer: int = Field(
-        45,
+        90,
         ge=5,
-        le=120,
+        le=180,
         description="Сколько кадров держать трек без детекции (предсказание движения)",
     )
 

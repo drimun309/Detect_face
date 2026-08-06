@@ -11,8 +11,8 @@ class SealerRoiConfig(BaseModel):
     y: float = Field(0.0, ge=0.0, le=1.0)
     w: float = Field(0.0, ge=0.0, le=1.0)
     h: float = Field(0.0, ge=0.0, le=1.0)
-    spike_thresh: float = Field(80.0, ge=0.5, le=100.0)
-    rest_thresh: float = Field(-50.0, ge=-100.0, le=80.0)
+    spike_thresh: float = Field(20.0, ge=0.5, le=200.0)
+    rest_thresh: float = Field(-15.0, ge=-100.0, le=80.0)
     cooldown_frames: int = Field(8, ge=1, le=120)
 
 

@@ -36,7 +36,7 @@ from src.utils.sealer_handle_detector import (
     probe_thresholds_from_scores,
 )
 from src.utils.person_tracker import PersonTracker
-from src.utils.rod_metrics import RodTracker
+from src.utils.palka_seg_tracker import ANG_EXIT_DEG, PalkaSegTracker
 from src.utils.roi_helpers import (
     assign_detection_to_roi,
     box_intersects_polygon,
@@ -70,7 +70,7 @@ class FaceStreamerConfig:
     rtsp_fallback_url: str = ""
     publish_url: str = ""
     output_size: tuple[int, int] = (1280, 720)
-    detection_mode: Literal["face", "person", "face_person"] = "face"
+    detection_mode: Literal["off", "face", "person", "face_person"] = "face"
     fps: int = 10
     # 1 = every frame (boxes in sync); 2,4,... = less CPU, boxes may lag
     frame_interval: int = 1
@@ -112,7 +112,7 @@ class FaceAnnotatedStreamer:
     def __init__(
         self,
         config: FaceStreamerConfig,
-        engine: FrOnnxEngine,
+        engine: FrOnnxEngine | None,
         face_store: FaceEmbeddingStore,
         person_engine: PersonDetector | None = None,
         package_engine: PersonDetector | None = None,
@@ -167,6 +167,7 @@ class FaceAnnotatedStreamer:
             "labels_count": 0,
             "packed_today": 0,
             "package_detection_enabled": config.package_detection_enabled,
+            "rod_pose_enabled": config.rod_pose_enabled,
             "sealer_cycle_count": 0,
             "sealer_activity": 0.0,
             "sealer_state": "OPEN",
@@ -174,6 +175,8 @@ class FaceAnnotatedStreamer:
             "rod_angle": 0.0,
             "rod_ref_dA": 0.0,
             "rod_armed": True,
+            "palka_e_count": 0,
+            "palka_ang_count": 0,
             "enrolled_faces": face_store.count,
             "ingest_fps": 0.0,
             "infer_fps": 0.0,
@@ -199,9 +202,12 @@ class FaceAnnotatedStreamer:
         self._sealer_probe_done = False
         self._sealer_initial_spike = DEFAULT_SPIKE_THRESHOLD
         self._sealer_initial_rest = DEFAULT_REST_THRESHOLD
-        self._rod_tracker = RodTracker()
+        self._palka_tracker = PalkaSegTracker()
         self._last_rod_pose: RodPoseDetection | None = None
         self._rod_ref_dA = 0.0
+        self._palka_roi: list[list[float]] | None = None
+        self._palka_pending_e = False
+        self._palka_pending_ang = False
         self._person_tracker = PersonTracker(
             tracker_type=config.person_tracker,
             track_buffer=config.person_track_buffer,
@@ -238,7 +244,6 @@ class FaceAnnotatedStreamer:
         """События палки = циклы запайщика (одна таблица sealer_*)."""
         cycles = self._sync_sealer_cycle_count_from_store()
         self.metrics["rod_press_count"] = cycles
-        self._rod_tracker.change_count = cycles
         return cycles
 
     def _safe_url(self, url: str | None = None) -> str:
@@ -253,6 +258,8 @@ class FaceAnnotatedStreamer:
     def _run_face_inference(
         self, rgb: np.ndarray
     ) -> tuple[list[list[int]], list[float], list[str], list[str | None], list[float | None]]:
+        if self.engine is None:
+            return [], [], [], [], []
         result = self.engine.predict(
             [rgb],
             det_conf=self.config.det_conf,
@@ -527,6 +534,9 @@ class FaceAnnotatedStreamer:
         if self.config.sealer_roi_w <= 0 or self.config.sealer_roi_h <= 0:
             return
 
+        # смена с 07:00 — подтянуть счётчик (обнуление без рестарта)
+        self._sync_sealer_cycle_count_from_store()
+
         width = frame_bgr.shape[1]
         height = frame_bgr.shape[0]
         if width <= 0 or height <= 0:
@@ -602,22 +612,19 @@ class FaceAnnotatedStreamer:
             self.metrics["sealer_activity"] = activity
             self.metrics["sealer_state"] = self._sealer_motion.state
             if fired:
-                cycles_today = 0
-                if self.sealer_counter_store is not None:
-                    cycles_today = self.sealer_counter_store.record_cycle(
-                        self.config.camera_id,
-                        activity=activity,
-                    )
-                else:
-                    cycles_today = int(self.metrics.get("sealer_cycle_count", 0)) + 1
-                self.metrics["sealer_cycle_count"] = cycles_today
+                # Fixed ROI now drives only live activity/state. A finished product
+                # is recorded to DB only by the paired rod event (ROI + angle).
+                self._sync_sealer_cycle_count_from_store()
         except Exception as exc:
             log.warning(f"Sealer cycle detector error cam={self.config.camera_id}: {exc}")
 
     def _update_rod_pose(self, frame_bgr: np.ndarray) -> None:
         if not self.config.rod_pose_enabled or self.rod_pose_engine is None:
             self._last_rod_pose = None
+            self._palka_roi = None
             return
+        # смена с 07:00 — подтянуть счётчик (обнуление без рестарта)
+        self._sync_sealer_cycle_count_from_store()
         try:
             det = self.rod_pose_engine.predict(
                 frame_bgr,
@@ -626,38 +633,111 @@ class FaceAnnotatedStreamer:
             )
             if det is None:
                 return
-            upd = self._rod_tracker.update(det.angle_deg)
             self._last_rod_pose = det
+            frame_dt = 1.0 / max(float(self.config.fps or 1), 1.0)
+            contour = list(getattr(det, "contour", []) or [])
+            if not contour:
+                # fallback: отрезок S-E как тонкий контур
+                contour = [det.top, det.bottom]
+            upd = self._palka_tracker.update(
+                contour,
+                frame_bgr.shape[1],
+                frame_bgr.shape[0],
+                frame_dt,
+            )
+            if upd is None:
+                return
+            # подменить концы на стабилизированные S/E из трекера
+            self._last_rod_pose = type(det)(
+                top=upd.s,
+                bottom=upd.e,
+                angle_deg=upd.angle_deg,
+                score=det.score,
+                keypoint_conf=det.keypoint_conf,
+                contour=list(getattr(det, "contour", []) or []),
+            )
+            self._palka_roi = upd.roi
             self._rod_ref_dA = upd.ref_dA
-            self.metrics["rod_angle"] = float(upd.ema_angle or det.angle_deg)
-            self.metrics["rod_ref_dA"] = upd.ref_dA
-            self.metrics["rod_armed"] = upd.armed
-            # activity для веб-статистики ROI ручки / запайщика
-            self.metrics["sealer_activity"] = float(upd.ref_dA)
-            self.metrics["sealer_state"] = "OPEN" if upd.armed else "CLOSED"
-            if upd.event_fired:
-                cycles_today = 0
+            self.metrics["rod_angle"] = float(upd.angle_deg)
+            self.metrics["rod_ref_dA"] = float(upd.ref_dA)
+            self.metrics["rod_armed"] = bool(upd.armed)
+            # в UI под «угол» / sealer activity отдаём угол S–E
+            self.metrics["sealer_activity"] = float(upd.angle_deg)
+            self.metrics["sealer_state"] = (
+                "CLOSED"
+                if (upd.e_in_roi is False or upd.ref_dA >= ANG_EXIT_DEG)
+                else "OPEN"
+            )
+            if upd.roi_created:
+                log.info(f"[cam {self.config.camera_id}] Auto ROI from first stick")
+            if upd.roi_retuned:
+                log.info(
+                    f"[cam {self.config.camera_id}] ROI RETUNE "
+                    f"shift={upd.roi_shift:.3f} idle={upd.roi_idle_sec:.0f}s"
+                )
+            if upd.roi_rescued:
+                # ROI съехал в покое — сбрасываем висящие pending, без изделия
+                self._palka_pending_e = False
+                self._palka_pending_ang = False
+                # не логируем каждый дрожащий кадр
+            if upd.event_e:
+                self.metrics["palka_e_count"] = int(self.metrics.get("palka_e_count", 0)) + 1
+                self._palka_pending_e = True
+                log.info(
+                    f"[cam {self.config.camera_id}] Palka E-out "
+                    f"dA={upd.ref_dA:.1f} n={self.metrics['palka_e_count']}"
+                )
+            if upd.event_angle:
+                self.metrics["palka_ang_count"] = (
+                    int(self.metrics.get("palka_ang_count", 0)) + 1
+                )
+                self._palka_pending_ang = True
+                log.info(
+                    f"[cam {self.config.camera_id}] Palka angle "
+                    f"dA={upd.ref_dA:.1f} n={self.metrics['palka_ang_count']}"
+                )
+            if self._palka_pending_e and self._palka_pending_ang:
+                activity = float(max(upd.ref_dA, 1.0))
                 if self.sealer_counter_store is not None:
                     cycles_today = self.sealer_counter_store.record_cycle(
                         self.config.camera_id,
-                        activity=float(upd.ref_dA),
+                        activity=activity,
                     )
                 else:
                     cycles_today = int(self.metrics.get("sealer_cycle_count", 0)) + 1
                 self.metrics["sealer_cycle_count"] = cycles_today
                 self.metrics["rod_press_count"] = cycles_today
-                self._rod_tracker.change_count = cycles_today
+                self._palka_pending_e = False
+                self._palka_pending_ang = False
+                log.info(
+                    f"Palka product cam={self.config.camera_id}: "
+                    f"ROI+angle dA={upd.ref_dA:.1f} total={cycles_today}"
+                )
+            elif (
+                upd.e_in_roi is True
+                and upd.ref_dA < ANG_EXIT_DEG
+                and upd.armed
+                and (self._palka_pending_e or self._palka_pending_ang)
+            ):
+                # вернулись в покой с одним сигналом — пару сбрасываем без БД
+                self._palka_pending_e = False
+                self._palka_pending_ang = False
             else:
-                cycles = int(self.metrics.get("sealer_cycle_count", upd.change_count))
-                self.metrics["rod_press_count"] = cycles
+                self.metrics["rod_press_count"] = int(
+                    self.metrics.get("sealer_cycle_count", 0)
+                )
         except Exception as exc:
             log.warning(f"Rod pose error cam={self.config.camera_id}: {exc}")
 
     def update_rod_pose(self, enabled: bool) -> None:
         self.config.rod_pose_enabled = enabled
+        self.metrics["rod_pose_enabled"] = enabled
         if not enabled:
             self._last_rod_pose = None
-            self._rod_tracker.reset()
+            self._palka_roi = None
+            self._palka_tracker.reset()
+            self._palka_pending_e = False
+            self._palka_pending_ang = False
             self._sync_rod_press_count_from_store()
 
     def _people_zone_track_centers(
@@ -841,6 +921,10 @@ class FaceAnnotatedStreamer:
         worker_counts = self._workers_per_roi(boxes, categories, width, height)
         presence = [c > 0 for c in worker_counts]
 
+        # чел·часы ROI только пока зона в режиме «работа» (тот же порог ~20с)
+        modes = self.roi_timer_store.get_modes(
+            self.config.camera_id, self.config.roi_keys
+        )
         if self.roi_people_counter_store is not None:
             self.roi_people_counter_store.sync_camera_rois(
                 self.config.camera_id, self.config.roi_keys
@@ -850,6 +934,7 @@ class FaceAnnotatedStreamer:
                     camera_id=self.config.camera_id,
                     roi_key=roi_key,
                     target_workers=count,
+                    accumulate=(modes.get(roi_key) == "work"),
                 )
 
         self.roi_timer_store.tick(
@@ -966,6 +1051,21 @@ class FaceAnnotatedStreamer:
                 annotated,
                 int(self.metrics.get("sealer_cycle_count", 0)),
                 float(self.metrics.get("sealer_activity", 0.0)),
+                angle_deg=(
+                    float(self.metrics.get("rod_angle", 0.0))
+                    if self.config.rod_pose_enabled
+                    else None
+                ),
+                e_count=(
+                    int(self.metrics.get("palka_e_count", 0))
+                    if self.config.rod_pose_enabled
+                    else None
+                ),
+                ang_count=(
+                    int(self.metrics.get("palka_ang_count", 0))
+                    if self.config.rod_pose_enabled
+                    else None
+                ),
             )
         if self._last_rod_pose is not None:
             annotated = draw_rod_pose_overlay(
@@ -976,6 +1076,8 @@ class FaceAnnotatedStreamer:
                 ref_dA=float(self._rod_ref_dA),
                 press_count=int(self.metrics.get("sealer_cycle_count", 0)),
                 armed=bool(self.metrics.get("rod_armed", True)),
+                contour=list(getattr(self._last_rod_pose, "contour", []) or []),
+                roi=list(self._palka_roi) if self._palka_roi else None,
             )
         return draw_worker_count_badge(
             annotated,
@@ -1259,23 +1361,45 @@ class FaceAnnotatedStreamer:
                 self._infer_count = 0
                 self._last_infer_ts = now
 
-            if (
-                frame_to_send is not None
-                and self.ffmpeg_process
-                and self.ffmpeg_process.stdin
-            ):
-                try:
-                    self.ffmpeg_process.stdin.write(frame_to_send.tobytes())
-                    self._encode_count += 1
-                except Exception as exc:
-                    log.error(f"[cam {self.config.camera_id}] ffmpeg write: {exc}")
-                    self.metrics["errors"] += 1
-                    self._stop_ffmpeg()
+            if frame_to_send is not None:
+                if self.ffmpeg_process is None or self.ffmpeg_process.poll() is not None:
                     try:
+                        self._stop_ffmpeg()
                         self._start_ffmpeg()
-                    except Exception:
-                        self.is_running = False
-                        break
+                    except Exception as exc:
+                        log.error(
+                            f"[cam {self.config.camera_id}] ffmpeg restart: {exc}"
+                        )
+                        self.metrics["errors"] += 1
+                        time.sleep(0.5)
+                        continue
+                if self.ffmpeg_process and self.ffmpeg_process.stdin:
+                    try:
+                        self.ffmpeg_process.stdin.write(frame_to_send.tobytes())
+                        self.ffmpeg_process.stdin.flush()
+                        self._encode_count += 1
+                    except Exception as exc:
+                        log.error(f"[cam {self.config.camera_id}] ffmpeg write: {exc}")
+                        self.metrics["errors"] += 1
+                        self._stop_ffmpeg()
+                        restarted = False
+                        for attempt in range(5):
+                            try:
+                                time.sleep(0.4 * (attempt + 1))
+                                self._start_ffmpeg()
+                                restarted = True
+                                break
+                            except Exception as restart_exc:
+                                log.warning(
+                                    f"[cam {self.config.camera_id}] ffmpeg "
+                                    f"retry {attempt + 1}/5: {restart_exc}"
+                                )
+                        if not restarted:
+                            # не гасим весь стрим — пробуем на следующих кадрах
+                            log.error(
+                                f"[cam {self.config.camera_id}] ffmpeg down, "
+                                "will retry on next frames"
+                            )
 
             elapsed_enc = now - self._last_encode_ts
             if elapsed_enc >= 1.0:

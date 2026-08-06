@@ -13,11 +13,11 @@ class SettingsStore:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._defaults = DetectionSettingsSchema(
-            detection_mode="face",
+            detection_mode="off",
             person_det_model=infer_person_model_id(cfg.PERSON_DET_ENGINE_PATH),
             crowdhuman_det_type="both",
             person_tracker="bytetrack",
-            person_track_buffer=45,
+            person_track_buffer=90,
             fr_det_conf=cfg.FR_DET_CONF,
             fr_det_nms=cfg.FR_DET_NMS,
             fr_distance=cfg.FR_DISTANCE,

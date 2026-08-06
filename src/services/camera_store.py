@@ -46,6 +46,7 @@ class CameraStore:
         self._ensure_people_zone_columns()
         self._ensure_department_column()
         self._ensure_package_detection_column()
+        self._ensure_rod_pose_column()
         self._ensure_sealer_roi_columns()
         self._ensure_stream_quality_columns()
         self._ensure_roi_timer_table()
@@ -115,6 +116,36 @@ class CameraStore:
         except SQLAlchemyError as exc:
             self._rollback()
             log.warning(f"package_detection column migration: {exc}")
+
+    def _ensure_rod_pose_column(self) -> None:
+        try:
+            exists = self.pg.session.exec(
+                text(
+                    "SELECT 1 FROM information_schema.columns "
+                    "WHERE table_name = 'cameras' "
+                    "AND column_name = 'rod_pose_enabled' "
+                    "LIMIT 1"
+                )
+            ).first()
+            if exists:
+                return
+            self.pg.session.exec(
+                text(
+                    "ALTER TABLE cameras ADD COLUMN "
+                    "rod_pose_enabled BOOLEAN DEFAULT FALSE"
+                )
+            )
+            # Первый запуск: раньше YOLO-ручка включалась вместе с пакетами
+            self.pg.session.exec(
+                text(
+                    "UPDATE cameras SET rod_pose_enabled = package_detection_enabled"
+                )
+            )
+            self.pg.session.commit()
+            log.info("Migrated cameras.rod_pose_enabled from package_detection_enabled")
+        except SQLAlchemyError as exc:
+            self._rollback()
+            log.warning(f"rod_pose column migration: {exc}")
 
     def _ensure_sealer_roi_columns(self) -> None:
         try:
@@ -270,6 +301,7 @@ class CameraStore:
             package_detection_enabled=bool(
                 getattr(row, "package_detection_enabled", False)
             ),
+            rod_pose_enabled=bool(getattr(row, "rod_pose_enabled", False)),
             stream_width=getattr(row, "stream_width", None),
             stream_height=getattr(row, "stream_height", None),
         )
@@ -474,6 +506,21 @@ class CameraStore:
                 if not row:
                     return None
                 row.package_detection_enabled = bool(enabled)
+                self.pg.session.add(row)
+                self.pg.session.commit()
+                self.pg.session.refresh(row)
+            except SQLAlchemyError:
+                self._rollback()
+                raise
+        return self._to_schema(row)
+
+    def set_rod_pose(self, camera_id: int, enabled: bool) -> Optional[CameraSchema]:
+        with self._lock:
+            try:
+                row = self.pg.session.get(CameraSqlSchema, camera_id)
+                if not row:
+                    return None
+                row.rod_pose_enabled = bool(enabled)
                 self.pg.session.add(row)
                 self.pg.session.commit()
                 self.pg.session.refresh(row)

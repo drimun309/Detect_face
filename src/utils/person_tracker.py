@@ -177,6 +177,9 @@ class SortKalmanTracker:
             alive.append(tr)
             if tr.hits < self.min_hits and tr.time_since_update > 0:
                 continue
+            if tr.time_since_update > 0:
+                # Не рисуем «тень» без детекции — только держим ID внутри max_age.
+                continue
             x1, y1, x2, y2 = [int(round(v)) for v in tr.box.tolist()]
             if x2 <= x1 or y2 <= y1:
                 continue
@@ -186,7 +189,7 @@ class SortKalmanTracker:
                     box=[x1, y1, x2, y2],
                     score=tr.score,
                     category=tr.category,
-                    predicted=tr.time_since_update > 0,
+                    predicted=False,
                 )
             )
         self._tracks = alive
@@ -218,6 +221,8 @@ class UltralyticsMotionTracker:
             path = Path(ultralytics.__file__).parent / "cfg" / "trackers" / name
             cfg = YAML.load(path)
             cfg["track_buffer"] = int(self.track_buffer)
+            # Soften association so a lean/partial box can re-attach to the same ID.
+            cfg["match_thresh"] = min(float(cfg.get("match_thresh", 0.8)), 0.7)
             args = IterableSimpleNamespace(**cfg)
             if self.tracker_type == "botsort":
                 from ultralytics.trackers.bot_sort import BOTSORT
@@ -273,9 +278,9 @@ class UltralyticsMotionTracker:
 
         online = self._tracker.update(dets, img)
         out: list[TrackedPerson] = []
-        seen_ids: set[int] = set()
 
-        # Сырые детекции — при матче берём их бокс (не Kalman «вперёд»)
+        # Сырые детекции — показываем трек только при матче с детекцией.
+        # Иначе Kalman «тень» летит по экрану и считается лишним человеком.
         det_xyxy = dets.xyxy
 
         if online is not None and len(online):
@@ -286,7 +291,6 @@ class UltralyticsMotionTracker:
                 score = float(row[5]) if len(row) > 5 else 0.5
                 cls_i = int(row[6]) if len(row) > 6 else 0
                 track_box = np.array([x1, y1, x2, y2], dtype=np.float32)
-                # Прилипаем к детекции, если IoU высокий — иначе бокс убегает вперёд
                 best_iou = 0.0
                 best_det = track_box
                 for dbox in det_xyxy:
@@ -294,52 +298,23 @@ class UltralyticsMotionTracker:
                     if iou > best_iou:
                         best_iou = iou
                         best_det = dbox
-                if best_iou >= 0.3:
-                    x1, y1, x2, y2 = [float(v) for v in best_det.tolist()]
-                    predicted = False
-                else:
-                    predicted = False
+                if best_iou < 0.3:
+                    continue
+                x1, y1, x2, y2 = [float(v) for v in best_det.tolist()]
                 ix1, iy1, ix2, iy2 = [int(round(v)) for v in (x1, y1, x2, y2)]
                 if ix2 <= ix1 or iy2 <= iy1:
                     continue
-                seen_ids.add(tid)
                 out.append(
                     TrackedPerson(
                         track_id=tid,
                         box=[ix1, iy1, ix2, iy2],
                         score=score,
                         category=_CLS_TO_CAT.get(cls_i, "person"),
-                        predicted=predicted,
+                        predicted=False,
                     )
                 )
 
-        # Lost: держим ПОСЛЕДНИЙ бокс без доп. predict() (иначе убегает вперёд)
-        lost = getattr(self._tracker, "lost_stracks", None) or []
-        for tr in lost:
-            tid = int(getattr(tr, "track_id", 0) or 0)
-            if tid in seen_ids or tid <= 0:
-                continue
-            try:
-                res = getattr(tr, "result", None)
-                if res is None:
-                    continue
-                x1, y1, x2, y2 = [int(round(float(v))) for v in list(res)[:4]]
-                if x2 <= x1 or y2 <= y1:
-                    continue
-                score = float(getattr(tr, "score", 0.5) or 0.5)
-                cls_i = int(getattr(tr, "cls", 0) or 0)
-                out.append(
-                    TrackedPerson(
-                        track_id=tid,
-                        box=[x1, y1, x2, y2],
-                        score=score,
-                        category=_CLS_TO_CAT.get(cls_i, "person"),
-                        predicted=True,
-                    )
-                )
-                seen_ids.add(tid)
-            except Exception:
-                continue
+        # Lost-треки не рисуем и не считаем: ID внутри BOTSORT живёт по track_buffer.
         return out
 
 

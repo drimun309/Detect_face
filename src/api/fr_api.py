@@ -28,10 +28,7 @@ class FrApi(BaseApi):
         super().__init__(cfg)
         self.router = APIRouter()
 
-        if engine is not None:
-            self.engine = engine
-        else:
-            self.setup_engine()
+        self.engine = engine
         self.setup()
 
     def setup_engine(self) -> None:
@@ -43,6 +40,11 @@ class FrApi(BaseApi):
             provider=self.cfg.FR_PROVIDER,
         )
         self.engine.setup()
+
+    def _ensure_engine(self) -> FrOnnxEngine:
+        if self.engine is None:
+            self.setup_engine()
+        return self.engine
 
     def setup(self) -> None:
         """Setup the face recognition API router."""
@@ -88,7 +90,7 @@ class FrApi(BaseApi):
             img_np = await self.preprocess_img_bytes(await image.read())
 
             # recognize faces
-            faces = self.engine.predict([img_np], det_conf=detConf, det_nms=detNms)
+            faces = self._ensure_engine().predict([img_np], det_conf=detConf, det_nms=detNms)
             # single batch
             faces = faces[0]
 
@@ -145,7 +147,7 @@ class FrApi(BaseApi):
             img_np = await self.preprocess_img_bytes(await image.read())
 
             # recognize faces
-            faces = self.engine.predict([img_np], det_conf=detConf, det_nms=detNms)
+            faces = self._ensure_engine().predict([img_np], det_conf=detConf, det_nms=detNms)
             # single batch
             faces = faces[0]
 

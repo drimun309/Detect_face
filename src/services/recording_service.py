@@ -222,6 +222,8 @@ class RecordingService:
             "-y",
             "-rtsp_transport",
             "tcp",
+            "-timeout",
+            "5000000",
             "-i",
             rtsp_url,
             "-an",
@@ -331,7 +333,12 @@ class RecordingService:
             day_start, _ = RoiTimerStore.day_range_unix(date_str)
             hh, mm, ss = int(m.group(1)), int(m.group(2)), int(m.group(3))
             start = day_start + hh * 3600 + mm * 60 + ss
-            end = start + chunk_sec
+            # Реальный конец = mtime файла (сегмент часто длиннее chunk_sec по wall-clock).
+            # Старый cap start+chunk_sec рисовал ложные дыры ~2–3 мин на таймлайне.
+            if mtime and mtime > start:
+                end = mtime + 1
+            else:
+                end = start + chunk_sec
             if index + 1 < len(files):
                 nxt = files[index + 1].name
                 nm = re.match(r"^(\d{2})(\d{2})(\d{2})\.mp4$", nxt)
@@ -340,8 +347,6 @@ class RecordingService:
                     next_start = day_start + nh * 3600 + nmi * 60 + ns
                     if next_start > start:
                         end = min(end, next_start)
-            if mtime and mtime > start:
-                end = min(end, mtime + 1)
             return start, end
         except Exception:
             return None, None
@@ -422,22 +427,21 @@ class RecordingService:
             self._thread.join(timeout=5)
 
     def _cleanup_loop(self) -> None:
-        """Background loop to cleanup old recordings."""
+        """Background loop: auto-record + retention."""
         while self._running:
             try:
-                # auto-record loop every 5 seconds
                 self._sync_auto_recording()
             except Exception as e:
                 log.error(f"Cleanup error: {e}")
-            # cleanup old recordings hourly
-            if int(time.time()) % 3600 < 5:
+            if int(time.time()) % 3600 < 2:
                 try:
                     deleted = self.cleanup_old_recordings()
                     if deleted > 0:
                         log.info(f"Cleaned up {deleted} old recording directories")
                 except Exception:
                     pass
-            time.sleep(5)
+            # 1s — быстрее поднять запись после падения annotated-стрима
+            time.sleep(1)
 
     def _sync_auto_recording(self) -> None:
         if not self.settings.enabled or not self.settings.auto_enabled:
@@ -447,16 +451,21 @@ class RecordingService:
         active = self.is_shift_active() if self.settings.shift.enabled else True
         cams = [c for c in (self._camera_provider() or []) if getattr(c, "enabled", False)]
         if not active:
-            # stop all
             for cam in cams:
                 if self.is_recording(cam.id):
                     self.stop_recording(cam.id)
             return
-        # start for all enabled cams
         for cam in cams:
             self._reap_recording(cam.id)
             if not self.is_recording(cam.id):
-                # annotated stream in MediaMTX
+                # не стартуем в пустой MediaMTX — иначе крошечные битые mp4
+                try:
+                    from src.streaming.stream_manager import get_stream_manager
+
+                    if not get_stream_manager().is_running(cam.id):
+                        continue
+                except Exception:
+                    pass
                 rtsp = f"rtsp://mediamtx:8554/annot_cam_{cam.id}"
                 self.start_recording(cam.id, cam.name, rtsp, manual=False)
 

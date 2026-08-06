@@ -877,6 +877,15 @@ class RoiTimerStore:
             return None
         return max(0, int(switch_seconds - (ts - state.presence_since)))
 
+    def get_modes(self, camera_id: int, roi_keys: list[str]) -> dict[str, str]:
+        """Текущий режим зон (до следующего tick) — work | idle | standby."""
+        out: dict[str, str] = {}
+        with self._lock:
+            for roi_key in roi_keys:
+                state = self._cache.get((camera_id, roi_key))
+                out[roi_key] = str(state.mode) if state else "standby"
+        return out
+
     def get_overlay_labels(
         self,
         camera_id: int,
