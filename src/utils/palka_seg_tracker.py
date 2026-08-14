@@ -11,7 +11,8 @@ import numpy as np
 
 
 HOLD_NEED_SEC = 1.0
-ANG_NEED_SEC = 0.25
+# Дольше hold, чтобы 1 шумный кадр не давал Palka angle; вход как в :8765 — 6°.
+ANG_NEED_SEC = 0.4
 ANG_ENTER_DEG = 6.0
 ANG_EXIT_DEG = 4.0
 ANG_REF_ALPHA = 0.02
@@ -19,8 +20,8 @@ ANG_REF_ALPHA = 0.02
 ROI_PAD_LONG = 0.10
 ROI_PAD_SHORT = 0.28
 REST_SETTLE_SEC = 1.0
-ROI_FOLLOW_DT = 5.0  # в покое подстраивать ROI не чаще раза в 5 секунд
-ANG_EMA = 0.4
+ROI_FOLLOW_DT = 10.0  # в покое (угол вернулся к норме) подстраивать ROI не чаще раза в 10с
+ANG_EMA = 0.2  # слабее сглаживание — ближе к сырому углу :8765, меньше ложных «хвостов»
 ROI_FREEZE_DEG = 3.0  # раньше freeze, чтобы ROI не ехал за нажатием
 
 
@@ -189,9 +190,8 @@ class PalkaSegUpdate:
 class PalkaSegTracker:
     """
     Покой: ROI следует за палкой, ang_ref подстраивается как в RelativeCycleTracker.
-    Угол: подтверждённый UP -> DOWN по относительному углу даёт event_angle.
-    ROI: кончик вне ROI при движении (dA≥3° или pressing) → event_e за 1с
-    (не ждём полного enter — иначе при dA~5–6 E-out молчал).
+    Угол: UP -> DOWN при dA≥6° и удержании ≥0.4с.
+    ROI: кончик вне ROI при движении (dA≥3° или pressing) → event_e за 1с.
     """
 
     hold_need_sec: float = HOLD_NEED_SEC
@@ -275,10 +275,12 @@ class PalkaSegTracker:
         self.pressing = self.angle_cycle.state == "DOWN"
         self.ang_armed = self.angle_cycle.state == "UP"
 
-        # ROI follow только в покое и редко; при dA≥3° уже freeze
+        # ROI follow только в покое после возврата угла к норме; не чаще 10с
+        angle_at_rest = (
+            self.angle_cycle.state == "UP" and ref_da <= self.ang_exit_deg
+        )
         roi_follow = (
-            (not self.pressing)
-            and (ref_da < ROI_FREEZE_DEG)
+            angle_at_rest
             and (roi_created or (now - self._roi_follow_ts) >= ROI_FOLLOW_DT)
         )
 

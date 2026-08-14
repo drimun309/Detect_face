@@ -576,6 +576,32 @@
       }
     }
 
+    function bindDeptNav() {
+      if (!window.DF_fillDeptNav) return;
+      const items = Array.from(deptSelect.options)
+        .filter(function (opt) { return opt.value; })
+        .map(function (opt) {
+          return {
+            id: opt.value,
+            name: opt.dataset.name || opt.textContent,
+            count: opt.dataset.count || "",
+          };
+        });
+      window.DF_attachZones(items, function (withZones) {
+        window.DF_fillDeptNav(
+          document.getElementById("stats-dept-nav"),
+          withZones,
+          deptSelect.value,
+          function (id) {
+            if (deptSelect.value === id) return;
+            deptSelect.value = id;
+            bindDeptNav();
+            deptSelect.dispatchEvent(new Event("change"));
+          }
+        );
+      });
+    }
+
     async function loadDepartments() {
       const [deptData, camData] = await Promise.all([
         request(API + "/departments"),
@@ -586,30 +612,22 @@
       const prevCam = camSelect.value;
 
       deptSelect.innerHTML = "";
-      const opt0 = document.createElement("option");
-      opt0.value = "";
-      opt0.textContent = t("selectDepartment");
-      deptSelect.appendChild(opt0);
-
       (deptData.items || []).forEach(function (dept) {
         const opt = document.createElement("option");
         opt.value = String(dept.id);
-        opt.textContent = dept.name + " (" + t("camerasCount", { n: dept.camera_count }) + ")";
+        opt.dataset.name = dept.name;
+        opt.dataset.count = t("camerasCount", { n: dept.camera_count });
+        opt.textContent = dept.name;
         deptSelect.appendChild(opt);
       });
 
-      const noDeptCams = camerasForDepartment("none");
-      if (noDeptCams.length) {
-        const optNone = document.createElement("option");
-        optNone.value = "none";
-        optNone.textContent = t("noDepartment") + " (" + t("camerasCount", { n: noDeptCams.length }) + ")";
-        deptSelect.appendChild(optNone);
-      }
-
       if (prevDept && Array.from(deptSelect.options).some(function (o) { return o.value === prevDept; })) {
         deptSelect.value = prevDept;
+      } else if (deptSelect.options.length) {
+        deptSelect.selectedIndex = 0;
       }
       populateCameraSelect(prevCam);
+      bindDeptNav();
     }
 
     async function loadStatDates(camId) {

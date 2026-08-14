@@ -641,7 +641,8 @@
     const distRange = document.getElementById("fr_distance");
     const enrolledEl = document.getElementById("settings-enrolled");
 
-    if (!form) return;
+    if (!form || form.dataset.settingsReady === "1") return;
+    form.dataset.settingsReady = "1";
 
     const crowdhumanGroup = document.getElementById("crowdhuman_det_type_group");
 
@@ -859,6 +860,9 @@
   let departmentsCache = [];
   let editingDepartmentId = null;
   const collapsedDepts = new Set();
+  let camerasDeptFilter = "";
+  let camerasListCache = [];
+  let streamByIdCache = {};
 
   function openCameraModal() {
     if (!cameraModal) return;
@@ -1655,6 +1659,14 @@
     return sel;
   }
 
+  function zonesForCamera(cam) {
+    const list =
+      (window.DF_zoneIndex && window.DF_zoneIndex[String(cam.department_id)]) || [];
+    return list.filter(function (zone) {
+      return Number(zone.camera_id) === Number(cam.id);
+    });
+  }
+
   function buildCameraRow(cam, streamById) {
     const st = streamById[String(cam.id)];
     let detCell = "—";
@@ -1670,7 +1682,22 @@
     const tdId = document.createElement("td");
     tdId.textContent = cam.id;
     const tdName = document.createElement("td");
-    tdName.textContent = cam.name;
+    const nameWrap = document.createElement("span");
+    nameWrap.className = "cam-name";
+    const dot = document.createElement("i");
+    const live = st && st.stream_running;
+    dot.className = "cam-status" + (live ? " on" : cam.enabled ? " idle" : "");
+    dot.title = live ? t("detOn") : cam.enabled ? t("detOff") : t("no");
+    nameWrap.append(dot, document.createTextNode(cam.name));
+    tdName.className = "cam-cell-name";
+    tdName.appendChild(nameWrap);
+    const zoneLine = document.createElement("div");
+    zoneLine.className = "cam-zones";
+    const camZones = zonesForCamera(cam);
+    zoneLine.textContent = camZones.length
+      ? camZones.map(function (zone) { return zone.name; }).join(" · ")
+      : "Нет рабочих зон";
+    tdName.appendChild(zoneLine);
     const tdIp = document.createElement("td");
     tdIp.textContent = cameraIpDisplay(cam);
     const tdEn = document.createElement("td");
@@ -1721,7 +1748,8 @@
   }
 
   function appendDeptGroup(tableEl, deptKey, title, cameras, streamById, deptId) {
-    const expanded = isDeptExpanded(deptKey);
+    const filtered = true;
+    const expanded = filtered || isDeptExpanded(deptKey);
     const header = document.createElement("tr");
     header.className = "dept-header-row";
     const td = document.createElement("td");
@@ -1742,7 +1770,8 @@
     const countEl = document.createElement("span");
     countEl.className = "dept-count help-text";
     countEl.textContent = " (" + t("camerasCount", { n: cameras.length }) + ")";
-    wrap.append(toggle, titleEl, countEl);
+    if (!filtered) wrap.append(toggle);
+    wrap.append(titleEl, countEl);
     if (deptId) {
       const editBtn = mkBtn("dept-edit-btn btn btn-secondary", t("editDepartment"), {
         "data-dept-id": String(deptId),
@@ -1768,6 +1797,90 @@
     });
   }
 
+  function camerasByDepartment() {
+    const byDept = {};
+    const noDept = [];
+    camerasListCache.forEach(function (cam) {
+      if (cam.department_id) {
+        const key = String(cam.department_id);
+        if (!byDept[key]) byDept[key] = [];
+        byDept[key].push(cam);
+      } else {
+        noDept.push(cam);
+      }
+    });
+    return { byDept: byDept, noDept: noDept };
+  }
+
+  function ensureCamerasDept() {
+    if (departmentsCache.some(function (dept) {
+      return String(dept.id) === camerasDeptFilter;
+    })) return;
+    camerasDeptFilter = departmentsCache.length ? String(departmentsCache[0].id) : "";
+  }
+
+  function renderCamerasDeptNav() {
+    const nav = document.getElementById("cameras-dept-nav");
+    if (!nav || !window.DF_fillDeptNav) return;
+    ensureCamerasDept();
+    const grouped = camerasByDepartment();
+    const items = departmentsCache.map(function (dept) {
+      const cameras = grouped.byDept[String(dept.id)] || [];
+      return {
+        id: String(dept.id),
+        name: dept.name,
+        count: t("camerasCount", { n: cameras.length }),
+        emptyText: t("statsNoCamerasInDept"),
+        zones: cameras.map(function (cam) {
+          return { name: cam.name };
+        }),
+      };
+    });
+    window.DF_fillDeptNav(nav, items, camerasDeptFilter, function (id) {
+      camerasDeptFilter = id;
+      renderCamerasDeptNav();
+    });
+    renderCamerasTable();
+  }
+
+  function renderCamerasTable() {
+    ensureCamerasDept();
+    const title = document.getElementById("cameras-title");
+    const grouped = camerasByDepartment();
+    const dept = departmentsCache.find(function (item) {
+      return String(item.id) === camerasDeptFilter;
+    });
+    if (title) title.textContent = dept ? dept.name : t("cameras");
+    table.innerHTML = "";
+    if (!dept) {
+      const tr = document.createElement("tr");
+      const td = document.createElement("td");
+      td.colSpan = 7;
+      td.className = "help-text";
+      td.textContent = t("addDepartment");
+      tr.appendChild(td);
+      table.appendChild(tr);
+      return;
+    }
+    appendDeptGroup(
+      table,
+      "d" + dept.id,
+      dept.name,
+      grouped.byDept[String(dept.id)] || [],
+      streamByIdCache,
+      dept.id
+    );
+    if (!table.querySelector(".camera-row")) {
+      const tr = document.createElement("tr");
+      const td = document.createElement("td");
+      td.colSpan = 7;
+      td.className = "help-text";
+      td.textContent = t("statsNoCamerasInDept");
+      tr.appendChild(td);
+      table.appendChild(tr);
+    }
+  }
+
   async function loadCameras() {
     const data = await request(API + "/cameras");
     const deptData = await request(API + "/departments").catch(function () {
@@ -1777,44 +1890,13 @@
     const streams = await request(API + "/streams/status").catch(function () {
       return { items: [] };
     });
-    const streamById = {};
+    streamByIdCache = {};
     (streams.items || []).forEach(function (s) {
-      streamById[String(s.camera_id)] = s;
+      streamByIdCache[String(s.camera_id)] = s;
     });
-    const byDept = {};
-    const noDept = [];
-    (data.items || []).forEach(function (cam) {
-      if (cam.department_id) {
-        const key = String(cam.department_id);
-        if (!byDept[key]) byDept[key] = [];
-        byDept[key].push(cam);
-      } else {
-        noDept.push(cam);
-      }
-    });
-    table.innerHTML = "";
-    departmentsCache.forEach(function (dept) {
-      appendDeptGroup(
-        table,
-        "d" + dept.id,
-        dept.name,
-        byDept[String(dept.id)] || [],
-        streamById,
-        dept.id
-      );
-    });
-    if (noDept.length) {
-      appendDeptGroup(table, "none", t("noDepartment"), noDept, streamById, null);
-    }
-    if (!departmentsCache.length && !noDept.length) {
-      const tr = document.createElement("tr");
-      const td = document.createElement("td");
-      td.colSpan = 7;
-      td.className = "help-text";
-      td.textContent = t("addCamera");
-      tr.appendChild(td);
-      table.appendChild(tr);
-    }
+    camerasListCache = data.items || [];
+    ensureCamerasDept();
+    renderCamerasDeptNav();
   }
 
   function openStreamModal(cameraName, useAnnotated) {
@@ -1939,6 +2021,9 @@
       if (tab === "enroll" && window.DF_initEnroll) window.DF_initEnroll();
       if (tab === "recordings" && window.DF_initRecordings) window.DF_initRecordings();
       if (tab === "stats" && window.DF_initStats) window.DF_initStats();
+      if (tab === "settings" && window.DF_initSettings) window.DF_initSettings(setStatus);
+      if (tab === "cameras") loadCameras().catch(function () {});
+      if (tab === "dashboard" && window.DF_loadDashboard) window.DF_loadDashboard();
     });
   });
 
@@ -1956,7 +2041,8 @@
   if (addCameraBtn) {
     addCameraBtn.addEventListener("click", function () {
       resetCameraForm();
-      loadDepartmentsForSelect(null).then(openCameraModal);
+      const selectedDept = camerasDeptFilter || null;
+      loadDepartmentsForSelect(selectedDept).then(openCameraModal);
     });
   }
   if (addDepartmentBtn) {
@@ -2220,11 +2306,6 @@
 
   if (window.DF_I18N) window.DF_I18N.applyI18n();
   if (window.DF_initRoi) window.DF_initRoi();
-  if (window.DF_initSettings) window.DF_initSettings(setStatus);
-  if (window.DF_initRecordings) window.DF_initRecordings();
-  loadCameras().catch(function (err) {
-    setStatus(err.message, true);
-  });
   setInterval(function () {
     if (document.getElementById("tab-cameras").classList.contains("active")) {
       loadCameras().catch(function () {});
@@ -2356,6 +2437,32 @@
       }
     }
 
+    function bindDeptNav() {
+      if (!window.DF_fillDeptNav) return;
+      const items = Array.from(deptSelect.options)
+        .filter(function (opt) { return opt.value; })
+        .map(function (opt) {
+          return {
+            id: opt.value,
+            name: opt.dataset.name || opt.textContent,
+            count: opt.dataset.count || "",
+          };
+        });
+      window.DF_attachZones(items, function (withZones) {
+        window.DF_fillDeptNav(
+          document.getElementById("rec-dept-nav"),
+          withZones,
+          deptSelect.value,
+          function (id) {
+            if (deptSelect.value === id) return;
+            deptSelect.value = id;
+            bindDeptNav();
+            deptSelect.dispatchEvent(new Event("change"));
+          }
+        );
+      });
+    }
+
     async function loadDepartments() {
       const [deptData, camData] = await Promise.all([
         request(API + "/departments"),
@@ -2366,30 +2473,22 @@
       const prevCam = camSelect.value;
 
       deptSelect.innerHTML = "";
-      const opt0 = document.createElement("option");
-      opt0.value = "";
-      opt0.textContent = t("selectDepartment");
-      deptSelect.appendChild(opt0);
-
       (deptData.items || []).forEach(function (dept) {
         const opt = document.createElement("option");
         opt.value = String(dept.id);
-        opt.textContent = dept.name + " (" + t("camerasCount", { n: dept.camera_count }) + ")";
+        opt.dataset.name = dept.name;
+        opt.dataset.count = t("camerasCount", { n: dept.camera_count });
+        opt.textContent = dept.name;
         deptSelect.appendChild(opt);
       });
 
-      const noDeptCams = camerasForDepartment("none");
-      if (noDeptCams.length) {
-        const optNone = document.createElement("option");
-        optNone.value = "none";
-        optNone.textContent = t("noDepartment") + " (" + t("camerasCount", { n: noDeptCams.length }) + ")";
-        deptSelect.appendChild(optNone);
-      }
-
       if (prevDept && Array.from(deptSelect.options).some(function (o) { return o.value === prevDept; })) {
         deptSelect.value = prevDept;
+      } else if (deptSelect.options.length) {
+        deptSelect.selectedIndex = 0;
       }
       populateCameraSelect(prevCam);
+      bindDeptNav();
     }
 
     function updateRecTime(preview) {

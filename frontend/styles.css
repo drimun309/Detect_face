@@ -25,8 +25,10 @@ body {
 
 .app {
   min-height: 100vh;
+  height: 100vh;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .app-nav {
@@ -89,6 +91,7 @@ body {
 
 .app-content {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
 }
 
@@ -98,6 +101,14 @@ body {
 
 .tab-panel.active {
   display: block;
+}
+
+#tab-dashboard.tab-panel.active,
+#tab-cameras.tab-panel.active,
+#tab-stats.tab-panel.active,
+#tab-recordings.tab-panel.active {
+  display: flex;
+  flex-direction: column;
 }
 
 .page-wrap {
@@ -1067,7 +1078,7 @@ td.actions {
 
 /* Статистика: отдел, камера, даты — одна строка */
 .stats-filters-row {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 @media (max-width: 900px) {
@@ -1256,4 +1267,974 @@ td.actions {
 
 .camera-row.hidden {
   display: none;
+}
+
+/* Главный экран — промышленный OLED-интерфейс */
+.app-nav {
+  min-height: 64px;
+  gap: 28px;
+  background: rgba(8, 9, 10, 0.96);
+  border-bottom-color: #25282b;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  backdrop-filter: blur(16px);
+}
+
+.nav-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 11px;
+  color: #f5f6f7;
+  text-decoration: none;
+  letter-spacing: 0.08em;
+  flex-shrink: 0;
+}
+
+.nav-brand > span:last-child {
+  display: flex;
+  flex-direction: column;
+  line-height: 1;
+}
+
+.nav-brand strong {
+  font: 700 15px/1 "Bahnschrift", "Segoe UI", sans-serif;
+}
+
+.nav-brand small {
+  color: #777d82;
+  font: 600 8px/1.7 "Bahnschrift", "Segoe UI", sans-serif;
+  letter-spacing: 0.28em;
+}
+
+.brand-mark {
+  width: 28px;
+  height: 28px;
+  border: 2px solid #d7ff43;
+  border-radius: 50%;
+  position: relative;
+  box-shadow: inset 0 0 0 5px #090a0b;
+  background: #d7ff43;
+}
+
+.brand-mark::after {
+  content: "";
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #090a0b;
+  inset: 0;
+  margin: auto;
+}
+
+.nav-tabs {
+  align-self: stretch;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.nav-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.nav-tab {
+  padding: 0 18px;
+  color: #777d82;
+  font: 600 13px/1 "Bahnschrift", "Segoe UI", sans-serif;
+  white-space: nowrap;
+}
+
+.nav-tab.active {
+  color: #f5f6f7;
+  border-bottom-color: #d7ff43;
+  background: transparent;
+}
+
+.nav-tab:hover {
+  color: #f5f6f7;
+  background: #111315;
+}
+
+.lang-switch {
+  align-items: center;
+  margin-left: auto;
+}
+
+.nav-clock {
+  color: #aeb3b7;
+  font: 500 12px/1 "Consolas", monospace;
+  margin-right: 10px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+#tab-dashboard,
+#tab-cameras,
+#tab-stats,
+#tab-recordings {
+  --signal: #d7ff43;
+  --surface: #101214;
+  --surface-raised: #15181a;
+  --line: #292d30;
+  height: 100%;
+  overflow: hidden;
+  font-family: "Bahnschrift", "Segoe UI", sans-serif;
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.017) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.017) 1px, transparent 1px),
+    radial-gradient(circle at 82% -20%, rgba(215, 255, 67, 0.08), transparent 32%),
+    #08090a;
+  background-size: 44px 44px, 44px 44px, auto, auto;
+}
+
+.dashboard-layout {
+  display: grid;
+  grid-template-columns: minmax(240px, 280px) minmax(0, 1fr);
+  flex: 1;
+  min-height: 0;
+}
+
+.dashboard-shell {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: clamp(14px, 1.6vh, 22px);
+  min-height: 0;
+  overflow: auto;
+  padding: clamp(16px, 2vw, 28px) clamp(16px, 2.2vw, 32px) 24px;
+}
+
+.cameras-shell {
+  min-height: 0;
+  overflow: auto;
+  padding: clamp(16px, 2vw, 28px) clamp(16px, 2.2vw, 32px) 24px;
+}
+
+#tab-cameras .settings-section {
+  background: rgba(16, 18, 20, 0.94);
+  border-color: var(--line);
+  margin-bottom: 0;
+}
+
+.cam-cell-name {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.cam-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cam-zones {
+  color: #8a9095;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.cam-status {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #555;
+  flex-shrink: 0;
+}
+
+.cam-status.on {
+  background: var(--signal);
+  box-shadow: 0 0 8px rgba(215, 255, 67, 0.6);
+}
+
+.cam-status.idle {
+  background: #ffb020;
+}
+
+.dashboard-depts {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: clamp(16px, 2vh, 24px) 12px 20px;
+}
+
+.depts-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.depts-panel .panel-heading {
+  flex-shrink: 0;
+  padding-bottom: 14px;
+}
+
+.depts-panel .dept-nav {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-top: 10px;
+}
+
+.dept-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.dept-nav-item {
+  border: 1px solid transparent;
+  border-radius: 8px;
+}
+
+.dept-nav-item[open] {
+  border-color: var(--line);
+  background: #15181a;
+}
+
+.dept-nav-btn {
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 11px 12px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: #8a9095;
+  font: 600 13px/1.25 "Bahnschrift", "Segoe UI", sans-serif;
+  text-align: left;
+  cursor: pointer;
+  list-style: none;
+  transition: background 0.2s, color 0.2s, border-color 0.2s;
+}
+
+.dept-nav-btn::-webkit-details-marker {
+  display: none;
+}
+
+.dept-nav-btn::after {
+  content: "";
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  margin-top: 5px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg);
+  opacity: 0.55;
+}
+
+.dept-nav-item[open] > .dept-nav-btn::after {
+  margin-top: 8px;
+  transform: rotate(-135deg);
+}
+
+.dept-nav-btn:hover,
+.dept-nav-btn:focus-visible {
+  color: #f4f5f5;
+  background: #15181a;
+  outline: none;
+}
+
+.dept-nav-btn.active {
+  color: #0b0c0d;
+  background: #d7ff43;
+  border-color: #d7ff43;
+}
+
+.dept-nav-btn small {
+  flex-shrink: 0;
+  font: 500 10px/1 "Consolas", monospace;
+  opacity: 0.7;
+}
+
+.dept-nav-btn span {
+  min-width: 0;
+  flex: 1;
+  overflow: visible;
+  white-space: normal;
+  overflow-wrap: break-word;
+}
+
+.dept-zone-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 8px 10px;
+}
+
+.dept-zone-empty {
+  margin: 0;
+  padding: 8px 4px;
+  color: #777d82;
+  font-size: 12px;
+}
+
+.dept-zone-btn {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #cfd2d4;
+  font: 500 12px/1.3 "Bahnschrift", "Segoe UI", sans-serif;
+  text-align: left;
+}
+
+button.dept-zone-btn {
+  cursor: pointer;
+}
+
+button.dept-zone-btn:hover,
+button.dept-zone-btn:focus-visible {
+  background: #191c1f;
+  outline: none;
+}
+
+.dept-zone-btn small {
+  color: #666d72;
+  font-size: 10px;
+}
+
+.dept-zone-btn.active {
+  color: #0b0c0d;
+  background: #d7ff43;
+}
+
+.dept-zone-btn.active small {
+  color: #3d4a14;
+}
+
+.dashboard-header,
+.panel-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.dashboard-header {
+  margin: 0;
+  align-items: center;
+}
+
+.dashboard-eyebrow,
+.panel-kicker {
+  color: var(--signal);
+  font: 600 10px/1.2 "Consolas", monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  margin-bottom: 10px;
+}
+
+.dashboard-header h1 {
+  font-size: clamp(22px, 2.2vw, 34px);
+  line-height: 1.05;
+  letter-spacing: -0.04em;
+  color: #f4f5f5;
+}
+
+.dashboard-header h1 span {
+  color: #656a6e;
+}
+
+.dashboard-date {
+  color: #858b90;
+  font-size: 13px;
+  margin-top: 6px;
+}
+
+.icon-btn {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  color: #b9bec1;
+  background: var(--surface);
+  cursor: pointer;
+  transition: border-color 0.2s, color 0.2s, background 0.2s;
+}
+
+.icon-btn:hover,
+.icon-btn:focus-visible {
+  color: #08090a;
+  border-color: var(--signal);
+  background: var(--signal);
+  outline: none;
+}
+
+.icon-btn svg,
+.dashboard-link svg {
+  width: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.icon-btn.loading svg {
+  animation: dashboard-spin 0.8s linear infinite;
+}
+
+@keyframes dashboard-spin {
+  to { transform: rotate(360deg); }
+}
+
+.dashboard-kpis {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+
+.kpi-card {
+  min-width: 0;
+  padding: 14px 16px 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  position: relative;
+}
+
+.kpi-card-accent::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 14px;
+  bottom: 14px;
+  width: 2px;
+  background: var(--signal);
+}
+
+.kpi-label,
+.kpi-card small {
+  display: block;
+  color: #777d82;
+  font-size: 11px;
+}
+
+.kpi-card strong {
+  display: block;
+  color: #f4f5f5;
+  font: 600 clamp(22px, 2vw, 32px)/1 "Bahnschrift", sans-serif;
+  letter-spacing: -0.04em;
+  margin: 10px 0 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  gap: 14px;
+  min-height: 0;
+  align-items: stretch;
+}
+
+.dashboard-side {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
+}
+
+.dashboard-panel {
+  min-height: 0;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(16, 18, 20, 0.94);
+  padding: 18px 20px;
+}
+
+.departments-panel {
+  display: flex;
+  flex-direction: column;
+}
+
+.panel-heading {
+  align-items: center;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--line);
+}
+
+.panel-heading h2 {
+  color: #e9ebec;
+  font-size: 19px;
+  letter-spacing: -0.02em;
+}
+
+.panel-kicker {
+  color: #6f767b;
+  margin-bottom: 6px;
+}
+
+.live-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #8f969a;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.live-badge i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--signal);
+  box-shadow: 0 0 10px rgba(215, 255, 67, 0.6);
+}
+
+.live-badge.error i {
+  background: #ff6262;
+  box-shadow: none;
+}
+
+.department-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+  gap: 10px;
+  padding-top: 14px;
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+}
+
+.department-card {
+  min-width: 0;
+  border: 1px solid #25292c;
+  border-radius: 10px;
+  background: var(--surface-raised);
+  overflow: hidden;
+}
+
+.department-card summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 14px 16px;
+  transition: background 0.2s;
+}
+
+.department-card summary::-webkit-details-marker {
+  display: none;
+}
+
+.department-card summary:hover {
+  background: #191c1f;
+}
+
+.department-title-row,
+.department-meta,
+.zone-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.department-title-row h3 {
+  overflow: hidden;
+  color: #f0f1f2;
+  font-size: 15px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.department-index {
+  color: #5f666b;
+  font: 600 10px/1 "Consolas", monospace;
+}
+
+.department-meta {
+  margin-top: 12px;
+  color: #7f868b;
+  font-size: 11px;
+  flex-wrap: wrap;
+}
+
+.department-meta b {
+  color: #d7dadd;
+  font-weight: 500;
+}
+
+.department-progress {
+  height: 3px;
+  background: #25292c;
+  margin-top: 12px;
+}
+
+.department-progress i {
+  display: block;
+  height: 100%;
+  background: var(--signal);
+}
+
+.zone-list {
+  border-top: 1px solid var(--line);
+  padding: 7px 18px 12px;
+}
+
+.zone-row {
+  padding: 10px 0;
+  border-bottom: 1px solid #24282a;
+  font-size: 11px;
+}
+
+.zone-row:last-child {
+  border-bottom: 0;
+}
+
+.zone-name {
+  min-width: 0;
+}
+
+.zone-name b,
+.zone-name small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.zone-name b {
+  color: #cfd2d4;
+  font-weight: 500;
+}
+
+.zone-name small {
+  color: #666d72;
+  margin-top: 3px;
+}
+
+.zone-values {
+  color: #8d9498;
+  font-family: "Consolas", monospace;
+  white-space: nowrap;
+}
+
+.empty-dashboard {
+  grid-column: 1 / -1;
+  padding: 36px 18px;
+  text-align: center;
+  color: #777d82;
+  font-size: 13px;
+  border: 1px dashed #303438;
+  border-radius: 10px;
+}
+
+.utilization-panel {
+  flex: none;
+}
+
+.utilization-number {
+  margin: 18px 0 8px;
+  color: #f3f4f4;
+}
+
+.utilization-number strong {
+  font-size: 72px;
+  line-height: 0.9;
+  letter-spacing: -0.07em;
+  font-variant-numeric: tabular-nums;
+}
+
+.utilization-number span {
+  color: var(--signal);
+  font-size: 22px;
+  margin-left: 6px;
+}
+
+.utilization-track {
+  height: 8px;
+  margin: 22px 0 18px;
+  border-radius: 10px;
+  background: #292d30;
+  overflow: hidden;
+}
+
+.utilization-track i {
+  display: block;
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--signal);
+  transition: width 0.5s ease;
+}
+
+.utilization-legend {
+  display: grid;
+  gap: 12px;
+  color: #858c91;
+  font-size: 12px;
+}
+
+.utilization-legend span {
+  display: grid;
+  grid-template-columns: 8px 1fr auto;
+  align-items: center;
+  gap: 9px;
+}
+
+.utilization-legend i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.utilization-legend b {
+  color: #d0d3d5;
+  font: 500 12px/1 "Consolas", monospace;
+}
+
+.legend-work {
+  background: var(--signal);
+}
+
+.legend-idle {
+  background: #596066;
+}
+
+.dashboard-link {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 16px;
+  padding: 13px 0 0;
+  color: #dce0e2;
+  border: 0;
+  border-top: 1px solid var(--line);
+  background: transparent;
+  font: 600 12px/1.2 "Bahnschrift", sans-serif;
+  cursor: pointer;
+  transition: color 0.2s;
+}
+
+.dashboard-link:hover,
+.dashboard-link:focus-visible {
+  color: var(--signal);
+  outline: none;
+}
+
+.ai-report {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.ai-report-list {
+  margin: 0;
+  padding: 14px 0 0;
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  list-style: none;
+}
+
+.ai-report-list li {
+  position: relative;
+  padding: 0 0 12px 14px;
+  color: #b8bdc1;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.ai-report-list li:last-child {
+  padding-bottom: 0;
+}
+
+.ai-report-list li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 7px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--signal);
+}
+
+@media (max-width: 1280px) {
+  .dashboard-kpis {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .dashboard-grid {
+    grid-template-columns: minmax(0, 1fr) 260px;
+  }
+}
+
+@media (max-height: 820px) {
+  .dashboard-shell {
+    gap: 12px;
+    padding: 14px 20px 16px;
+  }
+
+  .dashboard-header h1 {
+    font-size: 22px;
+  }
+
+  .kpi-card {
+    padding: 10px 14px 12px;
+  }
+
+  .kpi-card strong {
+    font-size: 22px;
+    margin: 6px 0 4px;
+  }
+
+  .utilization-number strong {
+    font-size: 56px;
+  }
+
+  .utilization-track {
+    margin: 16px 0 14px;
+  }
+}
+
+@media (max-width: 1100px) {
+  .app {
+    height: auto;
+    overflow: visible;
+  }
+
+  #tab-dashboard,
+  #tab-cameras,
+  #tab-stats,
+  #tab-recordings {
+    height: auto;
+    min-height: calc(100vh - 64px);
+    overflow: visible;
+  }
+
+  .dashboard-layout,
+  .dashboard-shell,
+  .cameras-shell {
+    display: block;
+    height: auto;
+    flex: none;
+    overflow: visible;
+  }
+
+  .dashboard-depts {
+    padding: 16px 16px 0;
+  }
+
+  .depts-panel {
+    flex: none;
+  }
+
+  .dept-nav {
+    flex-direction: column;
+    padding-bottom: 12px;
+  }
+
+  .dept-nav-item,
+  .dept-nav-btn {
+    width: 100%;
+  }
+
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-side {
+    display: grid;
+    grid-template-columns: minmax(0, 280px) minmax(0, 1fr);
+    align-items: stretch;
+  }
+
+  .ai-report {
+    min-height: 180px;
+  }
+
+  .utilization-number {
+    margin-top: 18px;
+  }
+}
+
+@media (max-width: 768px) {
+  .app-nav {
+    min-height: auto;
+    gap: 10px;
+  }
+
+  .nav-brand {
+    position: absolute;
+    top: 15px;
+    left: 14px;
+  }
+
+  .nav-tabs {
+    order: 2;
+    margin-top: 8px;
+  }
+
+  .nav-tab {
+    min-height: 42px;
+  }
+
+  .dashboard-shell {
+    padding: 16px 14px 28px;
+  }
+
+  .dashboard-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .kpi-card {
+    padding: 14px;
+  }
+
+  .department-grid {
+    grid-template-columns: 1fr;
+    overflow: visible;
+  }
+
+  .dashboard-side {
+    grid-template-columns: 1fr;
+  }
+
+  .nav-clock {
+    display: none;
+  }
+}
+
+@media (max-width: 430px) {
+  .dashboard-kpis {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-panel {
+    padding: 14px;
+  }
+
+  .live-badge {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .icon-btn,
+  .nav-tab,
+  .department-card summary,
+  .utilization-track i {
+    transition: none;
+  }
+
+  .icon-btn.loading svg {
+    animation: none;
+  }
 }

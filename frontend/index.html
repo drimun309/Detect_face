@@ -3,14 +3,21 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Распознавание лиц</title>
+    <title>Vision Control</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
     <div class="app">
       <nav class="app-nav">
+        <a class="nav-brand" href="#" data-open-tab="dashboard" aria-label="Главная">
+          <span class="brand-mark" aria-hidden="true"></span>
+          <span><strong>VISION</strong><small>CONTROL</small></span>
+        </a>
         <div class="nav-tabs">
-          <button type="button" class="nav-tab active" data-tab="cameras" data-i18n="tabCameras">
+          <button type="button" class="nav-tab active" data-tab="dashboard">
+            Обзор
+          </button>
+          <button type="button" class="nav-tab" data-tab="cameras" data-i18n="tabCameras">
             Камеры
           </button>
           <button type="button" class="nav-tab" data-tab="enroll" data-i18n="tabEnroll">
@@ -27,18 +34,137 @@
           </button>
         </div>
         <div class="lang-switch">
+          <span id="nav-clock" class="nav-clock" aria-label="Текущее время"></span>
           <button type="button" class="lang-btn active" data-lang="ru">RU</button>
           <button type="button" class="lang-btn" data-lang="en">EN</button>
         </div>
       </nav>
 
       <main class="app-content">
+        <!-- Главная -->
+        <div id="tab-dashboard" class="tab-panel active">
+          <div class="dashboard-layout">
+            <aside class="dashboard-depts" aria-label="Отделы">
+              <section class="dashboard-panel depts-panel">
+                <div class="panel-heading">
+                  <h2>Отделы</h2>
+                </div>
+                <nav id="dashboard-dept-nav" class="dept-nav"></nav>
+              </section>
+            </aside>
+            <div class="dashboard-shell">
+            <header class="dashboard-header">
+              <div>
+                <p class="dashboard-eyebrow">Оперативная сводка</p>
+                <h1 id="dashboard-title">Производство <span>сегодня</span></h1>
+                <p id="dashboard-date" class="dashboard-date">Загрузка данных…</p>
+              </div>
+              <button id="dashboard-refresh" type="button" class="icon-btn" aria-label="Обновить данные" title="Обновить">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66M20 4v6h-6"/></svg>
+              </button>
+            </header>
+
+            <section id="dashboard-kpis" class="dashboard-kpis" aria-label="Ключевые показатели">
+              <article class="kpi-card kpi-card-accent">
+                <span class="kpi-label">Работа</span>
+                <strong id="dash-work-kpi">—</strong>
+                <small>за текущую смену</small>
+              </article>
+              <article class="kpi-card">
+                <span class="kpi-label">Камеры</span>
+                <strong id="dash-cameras">—</strong>
+                <small id="dash-cameras-note">включено</small>
+              </article>
+              <article class="kpi-card">
+                <span class="kpi-label">Рабочие зоны</span>
+                <strong id="dash-zones">—</strong>
+                <small>ROI под контролем</small>
+              </article>
+              <article class="kpi-card">
+                <span class="kpi-label">Чел·часы</span>
+                <strong id="dash-person-hours">—</strong>
+                <small>по рабочим зонам</small>
+              </article>
+              <article class="kpi-card">
+                <span class="kpi-label">Простой</span>
+                <strong id="dash-idle-kpi">—</strong>
+                <small>за текущую смену</small>
+              </article>
+              <article class="kpi-card">
+                <span class="kpi-label">Упаковки</span>
+                <strong id="dash-packages">—</strong>
+                <small>обнаружено сегодня</small>
+              </article>
+            </section>
+
+            <div class="dashboard-grid">
+              <section class="dashboard-panel departments-panel">
+                <div class="panel-heading">
+                  <div>
+                    <p class="panel-kicker">Структура производства</p>
+                    <h2 id="dash-zones-title">Цехи и зоны</h2>
+                  </div>
+                  <span id="dash-load-state" class="live-badge"><i></i> Данные из БД</span>
+                </div>
+                <div id="dashboard-departments" class="department-grid"></div>
+              </section>
+
+              <div class="dashboard-side">
+                <aside class="dashboard-panel utilization-panel">
+                  <div class="panel-heading">
+                    <div>
+                      <p class="panel-kicker">Баланс смены</p>
+                      <h2>Работа / простой</h2>
+                    </div>
+                  </div>
+                  <div class="utilization-number">
+                    <strong id="dash-utilization">—</strong><span>%</span>
+                  </div>
+                  <div class="utilization-track" aria-hidden="true">
+                    <i id="dash-utilization-bar"></i>
+                  </div>
+                  <div class="utilization-legend">
+                    <span><i class="legend-work"></i>Работа <b id="dash-work">—</b></span>
+                    <span><i class="legend-idle"></i>Простой <b id="dash-idle">—</b></span>
+                  </div>
+                  <button type="button" class="dashboard-link" data-open-tab="stats">
+                    Открыть подробную статистику
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+                  </button>
+                </aside>
+
+                <aside class="dashboard-panel ai-report">
+                  <div class="panel-heading">
+                    <div>
+                      <p class="panel-kicker">Анализ смены</p>
+                      <h2>ИИ отчёт</h2>
+                    </div>
+                  </div>
+                  <ul id="dashboard-ai-report" class="ai-report-list">
+                    <li>Загрузка сводки…</li>
+                  </ul>
+                </aside>
+              </div>
+            </div>
+            </div>
+          </div>
+        </div>
+
         <!-- Камеры -->
-        <div id="tab-cameras" class="tab-panel active">
-          <div class="page-wrap page-wrap-wide">
+        <div id="tab-cameras" class="tab-panel">
+          <div class="dashboard-layout">
+            <aside class="dashboard-depts" aria-label="Отделы">
+              <section class="dashboard-panel depts-panel">
+                <div class="panel-heading">
+                  <h2>Отделы</h2>
+                </div>
+                <nav id="cameras-dept-nav" class="dept-nav"></nav>
+              </section>
+            </aside>
+            <div class="cameras-shell">
             <section class="settings-section">
               <div class="section-header">
-                <h2 class="section-title" data-i18n="cameras">Камеры</h2>
+                <h2 id="cameras-title" class="section-title" data-i18n="cameras">Камеры</h2>
                 <div class="button-group">
                   <button id="add-department-btn" type="button" class="btn btn-secondary" data-i18n="addDepartment">
                     Добавить отдел
@@ -79,6 +205,7 @@
             </section>
 
             <p id="status" class="global-status"></p>
+            </div>
           </div>
         </div>
 
@@ -489,6 +616,16 @@
 
         <!-- Статистика -->
         <div id="tab-stats" class="tab-panel">
+          <div class="dashboard-layout">
+            <aside class="dashboard-depts" aria-label="Отделы">
+              <section class="dashboard-panel depts-panel">
+                <div class="panel-heading">
+                  <h2>Отделы</h2>
+                </div>
+                <nav id="stats-dept-nav" class="dept-nav"></nav>
+              </section>
+            </aside>
+            <div class="cameras-shell">
           <div class="page-wrap">
             <div class="page-header">
               <h1 data-i18n="statsTitle">Аналитика</h1>
@@ -502,7 +639,7 @@
                 <h2 class="section-title" data-i18n="statsFilters">Фильтры</h2>
               </div>
               <div class="form-grid stats-filters-row">
-                <div class="form-group">
+                <div class="form-group hidden">
                   <label for="stats-department-select" data-i18n="department">Отдел</label>
                   <select id="stats-department-select" class="form-select">
                     <option value="" data-i18n="selectDepartment">-- Выберите отдел --</option>
@@ -578,10 +715,22 @@
               <div id="stats-day-timeline" class="rec-day-timeline-wrap stats-day-timeline"></div>
             </section>
           </div>
+            </div>
+          </div>
         </div>
 
         <!-- Записи -->
         <div id="tab-recordings" class="tab-panel">
+          <div class="dashboard-layout">
+            <aside class="dashboard-depts" aria-label="Отделы">
+              <section class="dashboard-panel depts-panel">
+                <div class="panel-heading">
+                  <h2>Отделы</h2>
+                </div>
+                <nav id="rec-dept-nav" class="dept-nav"></nav>
+              </section>
+            </aside>
+            <div class="cameras-shell">
           <div class="page-wrap">
             <div class="page-header">
               <h1 data-i18n="recordingsTitle">Записи видео</h1>
@@ -592,7 +741,7 @@
                 <h2 class="section-title" data-i18n="recordingsSelectCamera">Выбор камеры</h2>
               </div>
               <div class="form-grid">
-                <div class="form-group">
+                <div class="form-group hidden">
                   <label for="rec-department-select" data-i18n="department">Отдел</label>
                   <select id="rec-department-select" class="form-select">
                     <option value="" data-i18n="selectDepartment">-- Выберите отдел --</option>
@@ -630,6 +779,8 @@
                 <p class="help-text" data-i18n="recSelectHint">Выберите камеру и дату для просмотра записей</p>
               </div>
             </section>
+          </div>
+            </div>
           </div>
         </div>
       </main>
@@ -874,8 +1025,9 @@
 
     <script src="/roi.js?v=12" charset="UTF-8"></script>
     <script src="/rec-timeline.js?v=8" charset="UTF-8"></script>
-    <script src="/stats.js?v=10" charset="UTF-8"></script>
-    <script src="/app.js?v=43" charset="UTF-8"></script>
+    <script src="/stats.js?v=12" charset="UTF-8"></script>
+    <script src="/dashboard.js?v=10" charset="UTF-8"></script>
+    <script src="/app.js?v=50" charset="UTF-8"></script>
     <script src="/chat.js?v=1" charset="UTF-8"></script>
   </body>
 </html>

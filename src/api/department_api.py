@@ -3,6 +3,7 @@
 from fastapi import APIRouter, HTTPException, status
 
 from src.schema.department_schema import (
+    DashboardSummarySchema,
     DepartmentCreateSchema,
     DepartmentListSchema,
     DepartmentSchema,
@@ -18,6 +19,10 @@ class DepartmentApi:
         self.setup()
 
     def setup(self) -> None:
+        @self.router.get("/dashboard/summary", response_model=DashboardSummarySchema)
+        async def dashboard_summary() -> DashboardSummarySchema:
+            return self.store.dashboard_summary()
+
         @self.router.get("/departments", response_model=DepartmentListSchema)
         async def list_departments() -> DepartmentListSchema:
             return DepartmentListSchema(items=self.store.list())
