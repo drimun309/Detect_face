@@ -30,6 +30,10 @@ class StreamApi:
             cameras = self.store.list()
             return {"items": manager.get_all_statuses(cameras)}
 
+        @self.router.get("/streams/inference-scheduler")
+        async def inference_scheduler_status() -> dict:
+            return {"items": get_stream_manager().inference_scheduler.metrics()}
+
         @self.router.post("/cameras/{camera_id}/stream/start")
         async def start_stream(camera_id: int) -> dict:
             camera = self.store.get(camera_id)

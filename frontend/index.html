@@ -1011,6 +1011,11 @@
             <select id="camera-models" class="form-select model-multiselect" multiple></select>
             <p class="help-text">Можно выбрать несколько моделей (Ctrl/⌘ + клик).</p>
           </div>
+          <div class="form-group">
+            <label for="camera-inference-interval">Интервал инференса</label>
+            <input id="camera-inference-interval" name="inference_interval" type="number" min="1" max="120" class="form-input" placeholder="Глобальный" />
+            <p class="help-text">Каждый N-й кадр; фаза между камерами распределяется автоматически.</p>
+          </div>
           <div class="form-group checkbox-group">
             <label class="checkbox-label">
               <input name="enabled" type="checkbox" checked />

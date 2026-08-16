@@ -49,6 +49,7 @@ class CameraStore:
         self._ensure_rod_pose_column()
         self._ensure_sealer_roi_columns()
         self._ensure_stream_quality_columns()
+        self._ensure_inference_interval_column()
         self._ensure_roi_timer_table()
         self._migrate_legacy_json_once()
         self._sync_id_sequence()
@@ -185,6 +186,19 @@ class CameraStore:
             self._rollback()
             log.warning(f"stream quality columns migration: {exc}")
 
+    def _ensure_inference_interval_column(self) -> None:
+        try:
+            self.pg.session.exec(
+                text(
+                    "ALTER TABLE cameras ADD COLUMN IF NOT EXISTS "
+                    "inference_interval INTEGER NULL"
+                )
+            )
+            self.pg.session.commit()
+        except SQLAlchemyError as exc:
+            self._rollback()
+            log.warning(f"inference interval column migration: {exc}")
+
     def _ensure_roi_timer_table(self) -> None:
         try:
             self.pg.session.exec(
@@ -304,6 +318,7 @@ class CameraStore:
             rod_pose_enabled=bool(getattr(row, "rod_pose_enabled", False)),
             stream_width=getattr(row, "stream_width", None),
             stream_height=getattr(row, "stream_height", None),
+            inference_interval=getattr(row, "inference_interval", None),
         )
 
     def _polygons_to_response(

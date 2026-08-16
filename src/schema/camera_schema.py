@@ -25,6 +25,9 @@ class CameraBaseSchema(BaseModel):
     stream_height: Optional[int] = Field(
         None, ge=240, le=1440, description="NULL — глобальное из настроек"
     )
+    inference_interval: Optional[int] = Field(
+        None, ge=1, le=120, description="NULL — глобальный интервал инференса"
+    )
 
     @field_validator("path")
     @classmethod
@@ -53,6 +56,7 @@ class CameraUpdateSchema(BaseModel):
     rod_pose_enabled: Optional[bool] = None
     stream_width: Optional[int] = Field(None, ge=320, le=2560)
     stream_height: Optional[int] = Field(None, ge=240, le=1440)
+    inference_interval: Optional[int] = Field(None, ge=1, le=120)
 
     @field_validator("path")
     @classmethod

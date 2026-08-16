@@ -53,6 +53,7 @@ if TYPE_CHECKING:
     from src.services.rod_counter_store import RodCounterStore
     from src.services.roi_people_counter_store import RoiPeopleCounterStore
     from src.services.roi_timer_store import RoiTimerStore
+    from src.services.inference_scheduler import SharedInferenceScheduler
 
 log = get_logger()
 
@@ -104,6 +105,10 @@ class FaceStreamerConfig:
     sealer_cycle_dwell_sec: float = 1.0
     person_tracker: Literal["off", "bytetrack", "botsort", "sort"] = "bytetrack"
     person_track_buffer: int = 45
+    face_model_key: str = ""
+    person_model_keys: list[str] = field(default_factory=list)
+    package_model_keys: list[str] = field(default_factory=list)
+    pose_model_keys: list[str] = field(default_factory=list)
 
 
 class FaceAnnotatedStreamer:
@@ -123,6 +128,7 @@ class FaceAnnotatedStreamer:
         package_counter_store: "PackageCounterStore | None" = None,
         sealer_counter_store: "SealerCounterStore | None" = None,
         rod_counter_store: "RodCounterStore | None" = None,
+        inference_scheduler: "SharedInferenceScheduler | None" = None,
         roi_switch_seconds: float = 60.0,
         roi_reset_grace_seconds: float = 7.0,
     ) -> None:
@@ -138,6 +144,7 @@ class FaceAnnotatedStreamer:
         self.package_counter_store = package_counter_store
         self.sealer_counter_store = sealer_counter_store
         self.rod_counter_store = rod_counter_store
+        self.inference_scheduler = inference_scheduler
         self.roi_switch_seconds = roi_switch_seconds
         self.roi_reset_grace_seconds = roi_reset_grace_seconds
 
@@ -257,14 +264,26 @@ class FaceAnnotatedStreamer:
 
     def _run_face_inference(
         self, rgb: np.ndarray
-    ) -> tuple[list[list[int]], list[float], list[str], list[str | None], list[float | None]]:
-        if self.engine is None:
-            return [], [], [], [], []
-        result = self.engine.predict(
-            [rgb],
-            det_conf=self.config.det_conf,
-            det_nms=self.config.det_nms,
-        )[0]
+    ) -> tuple[list[list[int]], list[float], list[str], list[str | None], list[float | None], bool]:
+        executed = False
+        if self.inference_scheduler is not None and self.config.face_model_key:
+            result, executed = self.inference_scheduler.infer(
+                self.config.face_model_key,
+                self.config.camera_id,
+                self._frame_idx,
+                self.config.frame_interval,
+                rgb,
+                {"conf": self.config.det_conf, "nms": self.config.det_nms},
+            )
+            if result is None:
+                return [], [], [], [], [], executed
+        elif self.engine is not None:
+            result = self.engine.predict(
+                [rgb], det_conf=self.config.det_conf, det_nms=self.config.det_nms
+            )[0]
+            executed = True
+        else:
+            return [], [], [], [], [], False
         names, distances = self.face_store.match_batch(
             result.embeddings,
             result.scores,
@@ -277,46 +296,97 @@ class FaceAnnotatedStreamer:
             result.categories or ["face"] * len(result.boxes),
             names,
             distances,
+            executed,
         )
 
     def _run_person_inference(
         self, rgb: np.ndarray
-    ) -> tuple[list[list[int]], list[float], list[str], list[str | None], list[float | None]]:
-        if self.person_engine is None:
-            return [], [], [], [], []
-        result = self.person_engine.predict(
-            [rgb],
-            conf=self.config.det_conf,
-            nms=self.config.det_nms,
-        )[0]
+    ) -> tuple[list[list[int]], list[float], list[str], list[str | None], list[float | None], bool]:
+        results = []
+        executed = False
+        if self.inference_scheduler is not None and self.config.person_model_keys:
+            for key in self.config.person_model_keys:
+                result, did_run = self.inference_scheduler.infer(
+                    key,
+                    self.config.camera_id,
+                    self._frame_idx,
+                    self.config.frame_interval,
+                    rgb,
+                    {"conf": self.config.det_conf, "nms": self.config.det_nms},
+                )
+                executed = executed or did_run
+                if result is not None:
+                    results.append(result)
+        elif self.person_engine is not None:
+            results.append(
+                self.person_engine.predict(
+                    [rgb], conf=self.config.det_conf, nms=self.config.det_nms
+                )[0]
+            )
+            executed = True
+        if not results:
+            return [], [], [], [], [], executed
+        boxes = [box for result in results for box in result.boxes]
+        scores = [score for result in results for score in result.scores]
+        categories = [
+            category
+            for result in results
+            for category in (result.categories or ["person"] * len(result.boxes))
+        ]
         return (
-            result.boxes,
-            result.scores,
-            result.categories or ["person"] * len(result.boxes),
-            [None] * len(result.boxes),
-            [None] * len(result.boxes),
+            boxes,
+            scores,
+            categories,
+            [None] * len(boxes),
+            [None] * len(boxes),
+            executed,
         )
 
     def _run_package_inference(
         self, rgb: np.ndarray
-    ) -> tuple[list[list[int]], list[float], list[str], list[str | None], list[float | None]]:
-        if not self.config.package_detection_enabled or self.package_engine is None:
-            return [], [], [], [], []
-        result = self.package_engine.predict(
-            [rgb],
-            conf=self.config.package_det_conf,
-            nms=self.config.det_nms,
-            imgsz=self.config.package_det_imgsz,
-        )[0]
+    ) -> tuple[list[list[int]], list[float], list[str], list[str | None], list[float | None], bool]:
+        if not self.config.package_detection_enabled:
+            return [], [], [], [], [], False
+        results = []
+        executed = False
+        if self.inference_scheduler is not None and self.config.package_model_keys:
+            for key in self.config.package_model_keys:
+                result, did_run = self.inference_scheduler.infer(
+                    key,
+                    self.config.camera_id,
+                    self._frame_idx,
+                    self.config.frame_interval,
+                    rgb,
+                    {
+                        "conf": self.config.package_det_conf,
+                        "nms": self.config.det_nms,
+                        "imgsz": self.config.package_det_imgsz,
+                    },
+                )
+                executed = executed or did_run
+                if result is not None:
+                    results.append(result)
+        elif self.package_engine is not None:
+            results.append(
+                self.package_engine.predict(
+                    [rgb], conf=self.config.package_det_conf,
+                    nms=self.config.det_nms, imgsz=self.config.package_det_imgsz,
+                )[0]
+            )
+            executed = True
+        if not results:
+            return [], [], [], [], [], executed
+        boxes = [box for result in results for box in result.boxes]
+        scores = [score for result in results for score in result.scores]
+        categories = [category for result in results for category in (result.categories or [])]
         return (
-            result.boxes,
-            result.scores,
-            result.categories or [],
-            [None] * len(result.boxes),
-            [None] * len(result.boxes),
+            boxes, scores, categories,
+            [None] * len(boxes),
+            [None] * len(boxes),
+            executed,
         )
 
-    def _run_inference(self, frame_bgr: np.ndarray) -> None:
+    def _run_inference(self, frame_bgr: np.ndarray) -> bool:
         rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
         mode = self.config.detection_mode
         boxes: list[list[int]] = []
@@ -324,9 +394,11 @@ class FaceAnnotatedStreamer:
         categories: list[str] = []
         names: list[str | None] = []
         distances: list[float | None] = []
+        any_executed = False
 
         if mode in ("face", "face_person"):
-            fb, fs, fc, fn, fd = self._run_face_inference(rgb)
+            fb, fs, fc, fn, fd, ran = self._run_face_inference(rgb)
+            any_executed = any_executed or ran
             boxes.extend(fb)
             scores.extend(fs)
             categories.extend(fc)
@@ -334,7 +406,8 @@ class FaceAnnotatedStreamer:
             distances.extend(fd)
 
         if mode in ("person", "face_person"):
-            pb, ps, pc, pn, pd = self._run_person_inference(rgb)
+            pb, ps, pc, pn, pd, ran = self._run_person_inference(rgb)
+            any_executed = any_executed or ran
             tracked = self._person_tracker.update(pb, ps, pc, frame_bgr)
             if tracked is not None:
                 # Трекер только по телу; головы оставляем как сырые детекции
@@ -364,7 +437,8 @@ class FaceAnnotatedStreamer:
             distances.extend(pd)
 
         if self.config.package_detection_enabled:
-            pkg_b, pkg_s, pkg_c, pkg_n, pkg_d = self._run_package_inference(rgb)
+            pkg_b, pkg_s, pkg_c, pkg_n, pkg_d, ran = self._run_package_inference(rgb)
+            any_executed = any_executed or ran
             boxes.extend(pkg_b)
             scores.extend(pkg_s)
             categories.extend(pkg_c)
@@ -420,6 +494,7 @@ class FaceAnnotatedStreamer:
             self.metrics["packed_today"] = self.package_counter_store.get_total_today(
                 self.config.camera_id
             )
+        return any_executed
 
     def _packages_per_roi(
         self,
@@ -619,18 +694,41 @@ class FaceAnnotatedStreamer:
             log.warning(f"Sealer cycle detector error cam={self.config.camera_id}: {exc}")
 
     def _update_rod_pose(self, frame_bgr: np.ndarray) -> None:
-        if not self.config.rod_pose_enabled or self.rod_pose_engine is None:
+        has_scheduled_pose = bool(
+            self.inference_scheduler is not None and self.config.pose_model_keys
+        )
+        if not self.config.rod_pose_enabled or (
+            self.rod_pose_engine is None and not has_scheduled_pose
+        ):
             self._last_rod_pose = None
             self._palka_roi = None
             return
         # смена с 07:00 — подтянуть счётчик (обнуление без рестарта)
         self._sync_sealer_cycle_count_from_store()
         try:
-            det = self.rod_pose_engine.predict(
-                frame_bgr,
-                conf=self.config.rod_pose_conf,
-                imgsz=self.config.rod_pose_imgsz,
-            )
+            if has_scheduled_pose:
+                det = None
+                for key in self.config.pose_model_keys:
+                    candidate, _ = self.inference_scheduler.infer(
+                        key,
+                        self.config.camera_id,
+                        self._frame_idx,
+                        self.config.frame_interval,
+                        frame_bgr,
+                        {
+                            "conf": self.config.rod_pose_conf,
+                            "imgsz": self.config.rod_pose_imgsz,
+                        },
+                    )
+                    if candidate is not None:
+                        det = candidate
+                        break
+            else:
+                det = self.rod_pose_engine.predict(
+                    frame_bgr,
+                    conf=self.config.rod_pose_conf,
+                    imgsz=self.config.rod_pose_imgsz,
+                )
             if det is None:
                 return
             self._last_rod_pose = det
@@ -1335,14 +1433,14 @@ class FaceAnnotatedStreamer:
 
             self._frame_idx += 1
             interval_n = max(int(self.config.frame_interval), 1)
-            run_infer = (self._frame_idx % interval_n == 0) or (
-                self._last_annotated_frame is None
-            )
+            run_infer = self.inference_scheduler is not None or (
+                self._frame_idx % interval_n == 0
+            ) or self._last_annotated_frame is None
 
             if run_infer:
                 try:
-                    self._run_inference(frame)
-                    self._infer_count += 1
+                    if self._run_inference(frame):
+                        self._infer_count += 1
                 except Exception as exc:
                     log.error(f"[cam {self.config.camera_id}] infer error: {exc}")
                     self.metrics["errors"] += 1
@@ -1468,4 +1566,15 @@ class FaceAnnotatedStreamer:
         if self._source_size:
             out["source_width"] = self._source_size[0]
             out["source_height"] = self._source_size[1]
+        if self.inference_scheduler is not None:
+            keys = (
+                ([self.config.face_model_key] if self.config.face_model_key else [])
+                + self.config.person_model_keys
+                + self.config.package_model_keys
+                + self.config.pose_model_keys
+            )
+            out["inference_interval"] = self.config.frame_interval
+            out["inference_schedule"] = self.inference_scheduler.camera_schedule(
+                self.config.camera_id, self.config.frame_interval, keys
+            )
         return out

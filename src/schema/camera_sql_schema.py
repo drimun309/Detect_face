@@ -28,3 +28,4 @@ class CameraSqlSchema(SQLModel, table=True):
     sealer_roi_config: str = Field(default="{}")
     stream_width: Optional[int] = Field(default=None)
     stream_height: Optional[int] = Field(default=None)
+    inference_interval: Optional[int] = Field(default=None)

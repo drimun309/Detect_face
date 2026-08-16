@@ -1570,6 +1570,7 @@
     form.password.value = "";
     form.path.value = cam.path;
     form.enabled.checked = !!cam.enabled;
+    form.inference_interval.value = cam.inference_interval || "";
     const qualitySelect = document.getElementById("camera-stream-quality");
     if (qualitySelect) qualitySelect.value = cameraQualityPreset(cam);
     if (cameraDepartmentSelect) {
@@ -1586,6 +1587,7 @@
     form.port.value = "554";
     form.path.value = "/Streaming/Channels/101";
     form.enabled.checked = true;
+    form.inference_interval.value = "";
     const qualitySelect = document.getElementById("camera-stream-quality");
     if (qualitySelect) qualitySelect.value = "global";
     const modelSelect = document.getElementById("camera-models");

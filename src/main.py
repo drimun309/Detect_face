@@ -81,7 +81,9 @@ def main_api(cfg: Configs) -> None:
     from src.services.rod_pose_service import init_rod_pose_service
 
     init_rod_pose_service(cfg.ROD_POSE_MODEL_PATH, cfg.FR_PROVIDER)
-    stream_manager = init_stream_manager(cfg, camera_store=camera_store)
+    stream_manager = init_stream_manager(
+        cfg, camera_store=camera_store, model_store=model_store
+    )
     stream_manager.apply_detection_settings(settings_store.get())
     from src.services.go2rtc_sync import sync_go2rtc_config
 
@@ -115,7 +117,7 @@ def main_api(cfg: Configs) -> None:
 
     from src.api.model_api import ModelApi
 
-    model_api = ModelApi(model_store)
+    model_api = ModelApi(model_store, camera_store=camera_store)
     app.include_router(model_api.router, prefix="/api/v1", tags=["models"])
 
     department_api = DepartmentApi(department_store)

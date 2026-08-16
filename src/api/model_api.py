@@ -14,8 +14,9 @@ from src.services.model_store import ModelStore
 
 
 class ModelApi:
-    def __init__(self, store: ModelStore) -> None:
+    def __init__(self, store: ModelStore, camera_store=None) -> None:
         self.store = store
+        self.camera_store = camera_store
         self.router = APIRouter()
         self.setup()
 
@@ -67,6 +68,17 @@ class ModelApi:
             items = self.store.list_camera_models(camera_id)
             if items is None:
                 raise HTTPException(status_code=404, detail="Camera not found")
+            if self.camera_store is not None:
+                camera = self.camera_store.get(camera_id)
+                if camera:
+                    try:
+                        from src.streaming.stream_manager import get_stream_manager
+
+                        manager = get_stream_manager()
+                        if manager.is_running(camera_id):
+                            manager.restart_stream(camera)
+                    except RuntimeError:
+                        pass
             return CameraModelAssignmentListSchema(items=items)
 
         @self.router.put(

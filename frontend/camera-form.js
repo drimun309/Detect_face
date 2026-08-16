@@ -24,6 +24,9 @@
         department_id: department ? Number(department) : null,
         stream_width: null,
         stream_height: null,
+        inference_interval: data.get("inference_interval")
+          ? Number(data.get("inference_interval"))
+          : null,
       };
       if (quality.indexOf("x") > 0) {
         const parts = quality.split("x");

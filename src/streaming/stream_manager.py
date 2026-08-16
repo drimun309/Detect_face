@@ -31,6 +31,7 @@ from src.services.people_counter_store import PeopleCounterStore
 from src.services.package_detection_service import get_package_detection_service
 from src.services.rod_pose_service import get_rod_pose_service
 from src.services.rod_counter_store import RodCounterStore
+from src.services.inference_scheduler import SharedInferenceScheduler
 from src.services.roi_people_counter_store import RoiPeopleCounterStore
 from src.utils.logger import get_logger
 from src.utils.roi_helpers import RoiPolygonData, polygons_points
@@ -42,9 +43,14 @@ MAX_STREAMERS = 8
 
 
 class FaceStreamManager:
-    def __init__(self, cfg: Configs, camera_store: CameraStore | None = None) -> None:
+    def __init__(
+        self, cfg: Configs, camera_store: CameraStore | None = None, model_store=None
+    ) -> None:
         self.cfg = cfg
         self.camera_store = camera_store
+        self.model_store = model_store
+        self.inference_scheduler = SharedInferenceScheduler()
+        self._runtime_engines: dict[str, object] = {}
         self.mediamtx_url = cfg.MEDIAMTX_URL.rstrip("/")
         self.streamers: Dict[int, FaceAnnotatedStreamer] = {}
         self._lock = threading.Lock()
@@ -83,6 +89,159 @@ class FaceStreamManager:
         self._person_model_id = model_id
         self.cfg.PERSON_DET_ENGINE_PATH = path
         return engine
+
+    def _register_runtime_engine(self, key: str, engine, task: str) -> str:
+        if key in self._runtime_engines:
+            return key
+        self._runtime_engines[key] = engine
+        if task == "face":
+            self.inference_scheduler.register(
+                key,
+                lambda frame, params, e=engine: e.predict(
+                    [frame],
+                    det_conf=float(params.get("conf", 0.25)),
+                    det_nms=float(params.get("nms", 0.45)),
+                )[0],
+            )
+        elif task in ("person", "package"):
+            self.inference_scheduler.register(
+                key,
+                lambda frame, params, e=engine: e.predict(
+                    [frame],
+                    conf=float(params.get("conf", 0.25)),
+                    nms=float(params.get("nms", 0.45)),
+                    **(
+                        {"imgsz": int(params["imgsz"])}
+                        if "imgsz" in params
+                        else {}
+                    ),
+                )[0],
+            )
+        elif task == "pose":
+            self.inference_scheduler.register(
+                key,
+                lambda frame, params, e=engine: e.predict(
+                    frame,
+                    conf=float(params.get("conf", 0.25)),
+                    imgsz=int(params.get("imgsz", 640)),
+                ),
+            )
+        return key
+
+    def _camera_runtime(self, camera: CameraSchema) -> dict:
+        """Resolve catalog assignments to shared engines; legacy flags remain fallback."""
+        runtime = {
+            "mode": self.cfg.DETECTION_MODE,
+            "face_key": "",
+            "person_keys": [],
+            "package_keys": [],
+            "pose_keys": [],
+            "catalog": False,
+        }
+        assignments = (
+            self.model_store.list_camera_models(camera.id) if self.model_store else None
+        )
+        assignments = [
+            item for item in (assignments or []) if item.enabled and item.model.enabled
+        ]
+        if assignments:
+            runtime["catalog"] = True
+            tasks = {item.model.task for item in assignments}
+            runtime["mode"] = (
+                "face_person"
+                if "face" in tasks and "person" in tasks
+                else "face"
+                if "face" in tasks
+                else "person"
+                if "person" in tasks
+                else "off"
+            )
+            if "face" in tasks:
+                face_models = [
+                    item.model for item in assignments if item.model.task == "face"
+                ]
+                det_model = next(
+                    (
+                        model
+                        for model in face_models
+                        if any(token in model.code.lower() for token in ("yolox", "scrfd", "det"))
+                    ),
+                    None,
+                )
+                rec_model = next(
+                    (
+                        model
+                        for model in face_models
+                        if any(token in model.code.lower() for token in ("mobile", "arc", "w600", "rec"))
+                    ),
+                    None,
+                )
+                det_path = det_model.path if det_model else self.cfg.FR_DET_ENGINE_PATH
+                rec_path = rec_model.path if rec_model else self.cfg.FR_REC_ENGINE_PATH
+                face_key = (
+                    f"face:{det_model.code if det_model else 'default-det'}+"
+                    f"{rec_model.code if rec_model else 'default-rec'}"
+                )
+                face_engine = self._runtime_engines.get(face_key)
+                if face_engine is None:
+                    face_engine = FrOnnxEngine(
+                        det_engine_path=det_path,
+                        rec_engine_path=rec_path,
+                        det_max_end2end=self.cfg.FR_DET_MAX_END2END,
+                        provider=self.cfg.FR_PROVIDER,
+                    )
+                    face_engine.setup()
+                runtime["face_key"] = self._register_runtime_engine(
+                    face_key, face_engine, "face"
+                )
+            for assignment in assignments:
+                model = assignment.model
+                key = f"{model.task}:{model.code}"
+                try:
+                    if model.task == "person":
+                        engine = self._runtime_engines.get(key)
+                        if engine is None:
+                            engine = create_person_engine(model.path, self.cfg.FR_PROVIDER)
+                            engine.setup()
+                        runtime["person_keys"].append(
+                            self._register_runtime_engine(key, engine, "person")
+                        )
+                    elif model.task == "package":
+                        engine = self._runtime_engines.get(key)
+                        if engine is None:
+                            engine = create_person_engine(model.path, self.cfg.FR_PROVIDER)
+                            engine.setup()
+                        runtime["package_keys"].append(
+                            self._register_runtime_engine(key, engine, "package")
+                        )
+                    elif model.task == "pose":
+                        engine = self._runtime_engines.get(key)
+                        if engine is None:
+                            from src.engine.rod_pose_engine import RodPoseEngine
+
+                            engine = RodPoseEngine(model.path, device=self.cfg.FR_PROVIDER)
+                            engine.setup()
+                        runtime["pose_keys"].append(
+                            self._register_runtime_engine(key, engine, "pose")
+                        )
+                except Exception as exc:
+                    log.error(
+                        f"Model {model.code} unavailable for cam{camera.id}: {exc}"
+                    )
+        else:
+            if self.engine is not None:
+                runtime["face_key"] = self._register_runtime_engine(
+                    "face:recognition-pipeline", self.engine, "face"
+                )
+            if self.person_engine is not None:
+                runtime["person_keys"] = [
+                    self._register_runtime_engine(
+                        f"person:{self._person_model_id or 'default'}",
+                        self.person_engine,
+                        "person",
+                    )
+                ]
+        return runtime
 
     def _apply_fr_engine(self, mode: str) -> None:
         if mode not in ("face", "face_person"):
@@ -128,6 +287,8 @@ class FaceStreamManager:
         """Применить настройки к cfg и активным стримам."""
         old_size = (self.cfg.STREAM_WIDTH, self.cfg.STREAM_HEIGHT)
         old_fps = self.cfg.STREAM_FPS
+        old_mode = self.cfg.DETECTION_MODE
+        old_person_model = self._person_model_id
         new_size = (settings.stream_width, settings.stream_height)
 
         self.cfg.DETECTION_MODE = settings.detection_mode
@@ -167,7 +328,15 @@ class FaceStreamManager:
                 track_buffer=settings.person_track_buffer,
             )
 
-        need_restart = old_size != new_size or old_fps != settings.stream_fps
+        need_restart = (
+            old_size != new_size
+            or old_fps != settings.stream_fps
+            or old_mode != settings.detection_mode
+            or (
+                old_person_model
+                and old_person_model != settings.person_det_model
+            )
+        )
         if need_restart and self.camera_store:
             running_ids = list(self.streamers.keys())
             cameras = {c.id: c for c in self.camera_store.list()}
@@ -200,7 +369,8 @@ class FaceStreamManager:
             override,
         )
 
-    def _streamer_config(self, camera: CameraSchema) -> FaceStreamerConfig:
+    def _streamer_config(self, camera: CameraSchema, runtime: dict | None = None) -> FaceStreamerConfig:
+        runtime = runtime or {}
         roi_enabled, roi_defs = False, []
         if self.camera_store:
             roi_enabled, roi_defs = self.camera_store.get_roi_polygons(camera.id)
@@ -245,9 +415,13 @@ class FaceStreamManager:
             rtsp_fallback_url=direct_rtsp if go2rtc_rtsp else "",
             publish_url=f"{self.mediamtx_url}/annot_cam_{camera.id}",
             output_size=output_size,
-            detection_mode=self.cfg.DETECTION_MODE,
+            detection_mode=runtime.get("mode", self.cfg.DETECTION_MODE),
             fps=self.cfg.STREAM_FPS,
-            frame_interval=self.cfg.STREAM_FRAME_INTERVAL,
+            frame_interval=(
+                int(camera.inference_interval)
+                if camera.inference_interval is not None
+                else self.cfg.STREAM_FRAME_INTERVAL
+            ),
             det_conf=self.cfg.FR_DET_CONF,
             det_nms=self.cfg.FR_DET_NMS,
             distance=self.cfg.FR_DISTANCE,
@@ -260,13 +434,15 @@ class FaceStreamManager:
             people_zone_enabled=people_enabled,
             people_zone_polygon=people_polygon,
             people_zone_max_workers=people_max_workers,
-            package_detection_enabled=bool(
-                getattr(camera, "package_detection_enabled", False)
-            ),
+            package_detection_enabled=bool(runtime.get("package_keys"))
+            if runtime.get("catalog")
+            else bool(getattr(camera, "package_detection_enabled", False)),
             package_det_conf=self.cfg.PACKAGE_DET_CONF,
             package_det_imgsz=self.cfg.PACKAGE_DET_IMGSZ,
             package_count_dwell_sec=self.cfg.PACKAGE_COUNT_DWELL_SEC,
-            rod_pose_enabled=bool(getattr(camera, "rod_pose_enabled", False)),
+            rod_pose_enabled=bool(runtime.get("pose_keys"))
+            if runtime.get("catalog")
+            else bool(getattr(camera, "rod_pose_enabled", False)),
             rod_pose_conf=self.cfg.ROD_POSE_CONF,
             rod_pose_imgsz=self.cfg.ROD_POSE_IMGSZ,
             sealer_roi_enabled=sealer_enabled,
@@ -280,6 +456,10 @@ class FaceStreamManager:
             sealer_cycle_dwell_sec=self.cfg.SEALER_CYCLE_DWELL_SEC,
             person_tracker=self._person_tracker,  # type: ignore[arg-type]
             person_track_buffer=self._person_track_buffer,
+            face_model_key=runtime.get("face_key", ""),
+            person_model_keys=list(runtime.get("person_keys", [])),
+            package_model_keys=list(runtime.get("package_keys", [])),
+            pose_model_keys=list(runtime.get("pose_keys", [])),
         )
 
     def _apply_camera_config_to_streamer(
@@ -310,19 +490,13 @@ class FaceStreamManager:
     def _release_rod_if_needed(self, camera_id: int) -> None:
         if camera_id not in self._rod_camera_ids:
             return
-        try:
-            get_rod_pose_service().release()
-        except RuntimeError:
-            pass
+        # Scheduler owns the single model instance for the process lifetime.
         self._rod_camera_ids.discard(camera_id)
 
     def _release_package_if_needed(self, camera_id: int) -> None:
         if camera_id not in self._package_camera_ids:
             return
-        try:
-            get_package_detection_service().release()
-        except RuntimeError:
-            pass
+        # Scheduler owns the single model instance for the process lifetime.
         self._package_camera_ids.discard(camera_id)
 
     def update_package_detection(self, camera_id: int, enabled: bool) -> None:
@@ -426,20 +600,39 @@ class FaceStreamManager:
                 log.error(f"Max streamers ({MAX_STREAMERS}) reached")
                 return False
 
+            runtime = self._camera_runtime(camera)
             package_engine = None
             rod_pose_engine = None
-            pkg_enabled = bool(getattr(camera, "package_detection_enabled", False))
-            rod_enabled = bool(getattr(camera, "rod_pose_enabled", False))
-            if pkg_enabled:
+            pkg_enabled = bool(runtime.get("package_keys")) if runtime.get("catalog") else bool(
+                getattr(camera, "package_detection_enabled", False)
+            )
+            rod_enabled = bool(runtime.get("pose_keys")) if runtime.get("catalog") else bool(
+                getattr(camera, "rod_pose_enabled", False)
+            )
+            if pkg_enabled and not runtime.get("catalog"):
                 try:
-                    package_engine = get_package_detection_service().acquire()
+                    package_engine = self._runtime_engines.get("package:legacy")
+                    if package_engine is None:
+                        package_engine = get_package_detection_service().acquire()
+                    runtime["package_keys"] = [
+                        self._register_runtime_engine(
+                            "package:legacy", package_engine, "package"
+                        )
+                    ]
                     self._package_camera_ids.add(camera.id)
                 except RuntimeError as exc:
                     log.error(f"Package detection unavailable for cam{camera.id}: {exc}")
                     return False
-            if rod_enabled:
+            if rod_enabled and not runtime.get("catalog"):
                 try:
-                    rod_pose_engine = get_rod_pose_service().acquire()
+                    rod_pose_engine = self._runtime_engines.get("pose:legacy")
+                    if rod_pose_engine is None:
+                        rod_pose_engine = get_rod_pose_service().acquire()
+                    runtime["pose_keys"] = [
+                        self._register_runtime_engine(
+                            "pose:legacy", rod_pose_engine, "pose"
+                        )
+                    ]
                     self._rod_camera_ids.add(camera.id)
                 except RuntimeError as exc:
                     log.error(f"Rod pose unavailable for cam{camera.id}: {exc}")
@@ -447,7 +640,7 @@ class FaceStreamManager:
                     return False
 
             streamer = FaceAnnotatedStreamer(
-                self._streamer_config(camera),
+                self._streamer_config(camera, runtime),
                 self.engine,
                 self.face_store,
                 person_engine=self.person_engine,
@@ -459,6 +652,7 @@ class FaceStreamManager:
                 package_counter_store=self.package_counter_store,
                 sealer_counter_store=self.sealer_counter_store,
                 rod_counter_store=self.rod_counter_store,
+                inference_scheduler=self.inference_scheduler,
                 roi_switch_seconds=self.cfg.ROI_TIMER_SWITCH_SEC,
                 roi_reset_grace_seconds=self.cfg.ROI_TIMER_RESET_GRACE_SEC,
             )
@@ -482,6 +676,7 @@ class FaceStreamManager:
             return False
         self._release_package_if_needed(camera_id)
         self._release_rod_if_needed(camera_id)
+        self.inference_scheduler.detach_camera(camera_id)
         streamer.stop()
         return True
 
@@ -674,14 +869,22 @@ class FaceStreamManager:
         for camera_id in ids:
             self.stop_stream(camera_id)
 
+    def shutdown(self) -> None:
+        self.stop_all()
+        self.inference_scheduler.stop()
+
 
 _manager: Optional[FaceStreamManager] = None
 
 
-def init_stream_manager(cfg: Configs, camera_store: CameraStore | None = None) -> FaceStreamManager:
+def init_stream_manager(
+    cfg: Configs, camera_store: CameraStore | None = None, model_store=None
+) -> FaceStreamManager:
     global _manager
     if _manager is None:
-        _manager = FaceStreamManager(cfg, camera_store=camera_store)
+        _manager = FaceStreamManager(
+            cfg, camera_store=camera_store, model_store=model_store
+        )
     return _manager
 
 
@@ -694,5 +897,5 @@ def get_stream_manager() -> FaceStreamManager:
 def shutdown_stream_manager() -> None:
     global _manager
     if _manager is not None:
-        _manager.stop_all()
+        _manager.shutdown()
         _manager = None
