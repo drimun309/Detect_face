@@ -47,6 +47,10 @@ def main_api(cfg: Configs) -> None:
     from src.schema.camera_sql_schema import CameraSqlSchema  # noqa: F401 — register table
     from src.schema.department_sql_schema import DepartmentSqlSchema  # noqa: F401
     from src.schema.fr_schema import FacesFrSqlSchema  # noqa: F401
+    from src.schema.model_sql_schema import (  # noqa: F401
+        CameraModelSqlSchema,
+        DetectionModelSqlSchema,
+    )
     from src.services.camera_store import CameraStore
     from src.services.package_detection_service import init_package_detection_service
     from src.services.settings_store import SettingsStore
@@ -69,6 +73,9 @@ def main_api(cfg: Configs) -> None:
 
     department_store = DepartmentStore(pg)
     camera_store = CameraStore(pg)
+    from src.services.model_store import ModelStore
+
+    model_store = ModelStore(pg)
     settings_store = SettingsStore(cfg.DETECTION_SETTINGS_PATH, cfg)
     init_package_detection_service(cfg.PACKAGE_DET_MODEL_PATH, cfg.FR_PROVIDER)
     from src.services.rod_pose_service import init_rod_pose_service
@@ -105,6 +112,11 @@ def main_api(cfg: Configs) -> None:
     app.include_router(fr_api.router, prefix="/api/v1/engine", tags=["face-recognition"])
 
     app.include_router(camera_api.router, prefix="/api/v1", tags=["cameras"])
+
+    from src.api.model_api import ModelApi
+
+    model_api = ModelApi(model_store)
+    app.include_router(model_api.router, prefix="/api/v1", tags=["models"])
 
     department_api = DepartmentApi(department_store)
     app.include_router(department_api.router, prefix="/api/v1", tags=["departments"])

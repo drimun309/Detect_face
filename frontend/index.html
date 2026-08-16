@@ -20,6 +20,9 @@
           <button type="button" class="nav-tab" data-tab="cameras" data-i18n="tabCameras">
             Камеры
           </button>
+          <button type="button" class="nav-tab" data-tab="models">
+            Модели
+          </button>
           <button type="button" class="nav-tab" data-tab="enroll" data-i18n="tabEnroll">
             Регистрация лиц
           </button>
@@ -206,6 +209,33 @@
 
             <p id="status" class="global-status"></p>
             </div>
+          </div>
+        </div>
+
+        <!-- Каталог моделей -->
+        <div id="tab-models" class="tab-panel">
+          <div class="page-wrap">
+            <div class="page-header section-header">
+              <div>
+                <h1>Модели</h1>
+                <p class="help-text">Каталог моделей, которые можно назначать камерам.</p>
+              </div>
+              <button id="add-model-btn" type="button" class="btn btn-primary">Добавить модель</button>
+            </div>
+            <section class="settings-section">
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>ID</th><th>Название</th><th>Код</th><th>Задача</th>
+                      <th>Backend</th><th>Файл</th><th>Статус</th><th>Действия</th>
+                    </tr>
+                  </thead>
+                  <tbody id="model-table"></tbody>
+                </table>
+              </div>
+              <p id="model-list-msg" class="help-text"></p>
+            </section>
           </div>
         </div>
 
@@ -976,6 +1006,11 @@
               Разрешение annotated-потока для этой камеры. «По умолчанию» — из глобальных настроек.
             </p>
           </div>
+          <div class="form-group form-group-full">
+            <label for="camera-models">Модели камеры</label>
+            <select id="camera-models" class="form-select model-multiselect" multiple></select>
+            <p class="help-text">Можно выбрать несколько моделей (Ctrl/⌘ + клик).</p>
+          </div>
           <div class="form-group checkbox-group">
             <label class="checkbox-label">
               <input name="enabled" type="checkbox" checked />
@@ -991,6 +1026,25 @@
               Отмена
             </button>
           </div>
+        </form>
+      </div>
+    </div>
+
+    <div id="model-modal" class="modal hidden" aria-hidden="true">
+      <div class="modal-backdrop" id="model-modal-backdrop"></div>
+      <div class="modal-dialog" role="dialog" aria-labelledby="model-form-title">
+        <button type="button" class="modal-close" id="model-modal-close" aria-label="Close">&times;</button>
+        <h2 id="model-form-title" class="modal-title">Добавить модель</h2>
+        <form id="model-form" class="form-grid">
+          <input type="hidden" id="model-edit-id" />
+          <div class="form-group"><label>Название</label><input name="name" class="form-input" required /></div>
+          <div class="form-group"><label>Код</label><input name="code" class="form-input" pattern="[a-z0-9][a-z0-9_-]*" required /></div>
+          <div class="form-group"><label>Задача</label><select name="task" class="form-select"><option value="face">Лица</option><option value="person">Люди</option><option value="package">Упаковки</option><option value="pose">Поза</option><option value="custom">Другая</option></select></div>
+          <div class="form-group"><label>Backend</label><select name="backend" class="form-select"><option value="onnx">ONNX</option><option value="ultralytics">Ultralytics</option><option value="crowdhuman">CrowdHuman</option><option value="custom">Другой</option></select></div>
+          <div class="form-group form-group-full"><label>Путь к файлу</label><input name="path" class="form-input" placeholder="assets/model.onnx" required /></div>
+          <div class="form-group checkbox-group"><label class="checkbox-label"><input name="enabled" type="checkbox" checked /><span>Включена</span></label></div>
+          <p id="model-form-msg" class="help-text form-group-full"></p>
+          <div class="form-group form-group-full camera-form-actions"><button type="submit" class="btn btn-primary">Сохранить</button><button type="button" id="model-cancel-btn" class="btn btn-secondary">Отмена</button></div>
         </form>
       </div>
     </div>
@@ -1027,6 +1081,8 @@
     <script src="/rec-timeline.js?v=8" charset="UTF-8"></script>
     <script src="/stats.js?v=12" charset="UTF-8"></script>
     <script src="/dashboard.js?v=10" charset="UTF-8"></script>
+    <script src="/models.js?v=1" charset="UTF-8"></script>
+    <script src="/camera-form.js?v=1" charset="UTF-8"></script>
     <script src="/app.js?v=50" charset="UTF-8"></script>
     <script src="/chat.js?v=1" charset="UTF-8"></script>
   </body>

@@ -2238,3 +2238,10 @@ button.dept-zone-btn:focus-visible {
     animation: none;
   }
 }
+.model-multiselect {
+  min-height: 9rem;
+}
+
+.model-file-missing {
+  color: var(--danger, #c0392b);
+}

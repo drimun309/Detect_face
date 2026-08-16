@@ -836,6 +836,9 @@
   const RECONNECT_DELAYS = [1000, 2000, 5000];
 
   const form = document.getElementById("camera-form");
+  const cameraFormController = form && window.DF_CameraFormController
+    ? new window.DF_CameraFormController(API, form)
+    : null;
   const table = document.getElementById("camera-table");
   const statusEl = document.getElementById("status");
   const cameraEditId = document.getElementById("camera-edit-id");
@@ -1487,31 +1490,6 @@
     return res.json();
   }
 
-  function cameraPayloadFromForm(fd) {
-    const deptRaw = fd.get("department_id");
-    const qPreset = String(fd.get("stream_quality") || "global");
-    const payload = {
-      name: String(fd.get("name") || "").trim(),
-      ip: String(fd.get("ip") || "").trim(),
-      port: Number(fd.get("port") || 554),
-      protocol: fd.get("protocol") || "rtsp",
-      username: (fd.get("username") && String(fd.get("username"))) || null,
-      password: (fd.get("password") && String(fd.get("password"))) || null,
-      path: String(fd.get("path") || "/Streaming/Channels/101").trim(),
-      enabled: fd.get("enabled") === "on",
-      department_id: deptRaw ? Number(deptRaw) : null,
-    };
-    if (qPreset === "global") {
-      payload.stream_width = null;
-      payload.stream_height = null;
-    } else if (qPreset.indexOf("x") > 0) {
-      const parts = qPreset.split("x");
-      payload.stream_width = Number(parts[0]);
-      payload.stream_height = Number(parts[1]);
-    }
-    return payload;
-  }
-
   function openDepartmentModal(dept) {
     if (!departmentModal) return;
     editingDepartmentId = dept && dept.id ? dept.id : null;
@@ -1578,7 +1556,12 @@
   }
 
   async function fillCameraForm(cam) {
-    await loadDepartmentsForSelect(cam.department_id || null);
+    await Promise.all([
+      loadDepartmentsForSelect(cam.department_id || null),
+      window.DF_models
+        ? window.DF_models.populateCameraModelSelect(cam.id)
+        : Promise.resolve(),
+    ]);
     form.name.value = cam.name;
     form.ip.value = cam.ip;
     form.port.value = cam.port;
@@ -1605,6 +1588,8 @@
     form.enabled.checked = true;
     const qualitySelect = document.getElementById("camera-stream-quality");
     if (qualitySelect) qualitySelect.value = "global";
+    const modelSelect = document.getElementById("camera-models");
+    if (modelSelect) modelSelect.innerHTML = "";
     setCameraFormMode(null);
     if (cameraFormMsg) cameraFormMsg.textContent = "";
   }
@@ -2039,10 +2024,16 @@
   });
 
   if (addCameraBtn) {
-    addCameraBtn.addEventListener("click", function () {
+    addCameraBtn.addEventListener("click", async function () {
       resetCameraForm();
       const selectedDept = camerasDeptFilter || null;
-      loadDepartmentsForSelect(selectedDept).then(openCameraModal);
+      await Promise.all([
+        loadDepartmentsForSelect(selectedDept),
+        window.DF_models
+          ? window.DF_models.populateCameraModelSelect(null)
+          : Promise.resolve(),
+      ]);
+      openCameraModal();
     });
   }
   if (addDepartmentBtn) {
@@ -2105,33 +2096,12 @@
 
   form.addEventListener("submit", async function (e) {
     e.preventDefault();
-    const fd = new FormData(form);
-    const payload = cameraPayloadFromForm(fd);
-    if (editingCameraId && !fd.get("password")) delete payload.password;
-    if (!payload.name || !payload.ip) {
-      setStatus(t("saveCamera"), true);
-      return;
-    }
     if (cameraSubmitBtn) cameraSubmitBtn.disabled = true;
     if (cameraFormMsg) cameraFormMsg.textContent = t("saving");
     try {
-      if (editingCameraId) {
-        await request(API + "/cameras/" + editingCameraId, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-        setStatus(t("cameraUpdated"));
-        if (cameraFormMsg) cameraFormMsg.textContent = t("cameraUpdated");
-      } else {
-        await request(API + "/cameras", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-        setStatus(t("cameraSaved"));
-        if (cameraFormMsg) cameraFormMsg.textContent = t("cameraSaved");
-      }
+      if (!cameraFormController) throw new Error("Camera form module is not loaded");
+      await cameraFormController.save(editingCameraId);
+      setStatus(editingCameraId ? t("cameraUpdated") : t("cameraSaved"));
       closeCameraModal();
       await loadCameras();
     } catch (err) {

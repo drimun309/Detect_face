@@ -647,6 +647,11 @@ class CameraStore:
                     return False
                 self.pg.session.delete(row)
                 self.pg.session.exec(
+                    text("DELETE FROM camera_models WHERE camera_id = :camera_id").bindparams(
+                        camera_id=camera_id
+                    )
+                )
+                self.pg.session.exec(
                     text("DELETE FROM roi_timers WHERE camera_id = :camera_id").bindparams(
                         camera_id=camera_id
                     )
