@@ -1556,12 +1556,7 @@
   }
 
   async function fillCameraForm(cam) {
-    await Promise.all([
-      loadDepartmentsForSelect(cam.department_id || null),
-      window.DF_models
-        ? window.DF_models.populateCameraModelSelect(cam.id)
-        : Promise.resolve(),
-    ]);
+    setCameraFormMode(cam.id);
     form.name.value = cam.name;
     form.ip.value = cam.ip;
     form.port.value = cam.port;
@@ -1576,9 +1571,21 @@
     if (cameraDepartmentSelect) {
       cameraDepartmentSelect.value = cam.department_id ? String(cam.department_id) : "";
     }
-    setCameraFormMode(cam.id);
     if (cameraFormMsg) cameraFormMsg.textContent = "";
     openCameraModal();
+    try {
+      await Promise.all([
+        loadDepartmentsForSelect(cam.department_id || null),
+        window.DF_models
+          ? window.DF_models.populateCameraModelSelect(cam.id)
+          : Promise.resolve(),
+      ]);
+      if (cameraDepartmentSelect) {
+        cameraDepartmentSelect.value = cam.department_id ? String(cam.department_id) : "";
+      }
+    } catch (err) {
+      if (cameraFormMsg) cameraFormMsg.textContent = err.message || String(err);
+    }
   }
 
   function resetCameraForm() {
@@ -1800,9 +1807,15 @@
   }
 
   function ensureCamerasDept() {
+    const grouped = camerasByDepartment();
+    if (camerasDeptFilter === "none" && grouped.noDept.length > 0) return;
     if (departmentsCache.some(function (dept) {
       return String(dept.id) === camerasDeptFilter;
     })) return;
+    if (grouped.noDept.length > 0) {
+      camerasDeptFilter = "none";
+      return;
+    }
     camerasDeptFilter = departmentsCache.length ? String(departmentsCache[0].id) : "";
   }
 
@@ -1823,6 +1836,17 @@
         }),
       };
     });
+    if (grouped.noDept.length > 0) {
+      items.unshift({
+        id: "none",
+        name: t("noDepartment"),
+        count: t("camerasCount", { n: grouped.noDept.length }),
+        emptyText: t("statsNoCamerasInDept"),
+        zones: grouped.noDept.map(function (cam) {
+          return { name: cam.name };
+        }),
+      });
+    }
     window.DF_fillDeptNav(nav, items, camerasDeptFilter, function (id) {
       camerasDeptFilter = id;
       renderCamerasDeptNav();
@@ -1837,14 +1861,41 @@
     const dept = departmentsCache.find(function (item) {
       return String(item.id) === camerasDeptFilter;
     });
-    if (title) title.textContent = dept ? dept.name : t("cameras");
+    if (title) {
+      title.textContent =
+        camerasDeptFilter === "none"
+          ? t("noDepartment")
+          : dept
+            ? dept.name
+            : t("cameras");
+    }
     table.innerHTML = "";
+    if (camerasDeptFilter === "none") {
+      appendDeptGroup(
+        table,
+        "none",
+        t("noDepartment"),
+        grouped.noDept,
+        streamByIdCache,
+        null
+      );
+      if (!table.querySelector(".camera-row")) {
+        const tr = document.createElement("tr");
+        const td = document.createElement("td");
+        td.colSpan = 7;
+        td.className = "help-text";
+        td.textContent = t("statsNoCamerasInDept");
+        tr.appendChild(td);
+        table.appendChild(tr);
+      }
+      return;
+    }
     if (!dept) {
       const tr = document.createElement("tr");
       const td = document.createElement("td");
       td.colSpan = 7;
       td.className = "help-text";
-      td.textContent = t("addDepartment");
+      td.textContent = grouped.noDept.length ? t("noDepartment") : t("addDepartment");
       tr.appendChild(td);
       table.appendChild(tr);
       return;
@@ -2133,12 +2184,22 @@
     const editBtn = e.target.closest(".edit-btn");
     if (editBtn) {
       const id = editBtn.getAttribute("data-id");
-      try {
-        const cam = await request(API + "/cameras/" + id);
-        await fillCameraForm(cam);
-      } catch (err) {
-        setStatus(err.message, true);
+      const cached = camerasListCache.find(function (cam) {
+        return String(cam.id) === String(id);
+      });
+      if (cached) {
+        fillCameraForm(cached).catch(function (err) {
+          setStatus(err.message, true);
+        });
+        return;
       }
+      request(API + "/cameras/" + id)
+        .then(function (cam) {
+          return fillCameraForm(cam);
+        })
+        .catch(function (err) {
+          setStatus(err.message, true);
+        });
       return;
     }
     const watchBtn = e.target.closest(".watch-btn");
