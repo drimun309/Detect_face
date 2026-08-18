@@ -5,20 +5,21 @@ import rootutils
 ROOT = rootutils.autosetup()
 
 import uvicorn
-from gunicorn.app import base
 
 from src.utils.logger import get_logger
 
 log = get_logger()
 
 
-class GunicornApp(base.BaseApplication):
+class GunicornApp:
     """Gunicorn application."""
 
     def __init__(self, app, options=None):
+        from gunicorn.app import base
+
         self.options = options or {}
         self.application = app
-        super().__init__()
+        base.BaseApplication.__init__(self)
 
     def load_config(self):
         config = {

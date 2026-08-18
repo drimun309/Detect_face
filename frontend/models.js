@@ -187,8 +187,16 @@
   });
 
   global.DF_models = {
+    loadModels: loadModels,
     populateCameraModelSelect: populateCameraModelSelect,
     saveCameraModels: saveCameraModels,
+    replaceCameraModels: function (cameraId, modelIds) {
+      return request(API + "/cameras/" + cameraId + "/models", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model_ids: modelIds }),
+      });
+    },
     renderModels: renderModels,
   };
 })(window);

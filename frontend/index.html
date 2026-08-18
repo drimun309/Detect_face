@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Vision Control</title>
-    <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/styles.css?v=12" />
   </head>
   <body>
     <div class="app">
@@ -62,93 +62,16 @@
                 <h1 id="dashboard-title">Производство <span>сегодня</span></h1>
                 <p id="dashboard-date" class="dashboard-date">Загрузка данных…</p>
               </div>
-              <button id="dashboard-refresh" type="button" class="icon-btn" aria-label="Обновить данные" title="Обновить">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66M20 4v6h-6"/></svg>
-              </button>
+              <div class="dashboard-header-actions">
+                <span id="dash-load-state" class="live-badge"><i></i> Данные из БД</span>
+                <button id="dashboard-add-widget" type="button" class="btn btn-secondary">Добавить виджет</button>
+                <button id="dashboard-refresh" type="button" class="icon-btn" aria-label="Обновить данные" title="Обновить">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66M20 4v6h-6"/></svg>
+                </button>
+              </div>
             </header>
 
-            <section id="dashboard-kpis" class="dashboard-kpis" aria-label="Ключевые показатели">
-              <article class="kpi-card kpi-card-accent">
-                <span class="kpi-label">Работа</span>
-                <strong id="dash-work-kpi">—</strong>
-                <small>за текущую смену</small>
-              </article>
-              <article class="kpi-card">
-                <span class="kpi-label">Камеры</span>
-                <strong id="dash-cameras">—</strong>
-                <small id="dash-cameras-note">включено</small>
-              </article>
-              <article class="kpi-card">
-                <span class="kpi-label">Рабочие зоны</span>
-                <strong id="dash-zones">—</strong>
-                <small>ROI под контролем</small>
-              </article>
-              <article class="kpi-card">
-                <span class="kpi-label">Чел·часы</span>
-                <strong id="dash-person-hours">—</strong>
-                <small>по рабочим зонам</small>
-              </article>
-              <article class="kpi-card">
-                <span class="kpi-label">Простой</span>
-                <strong id="dash-idle-kpi">—</strong>
-                <small>за текущую смену</small>
-              </article>
-              <article class="kpi-card">
-                <span class="kpi-label">Упаковки</span>
-                <strong id="dash-packages">—</strong>
-                <small>обнаружено сегодня</small>
-              </article>
-            </section>
-
-            <div class="dashboard-grid">
-              <section class="dashboard-panel departments-panel">
-                <div class="panel-heading">
-                  <div>
-                    <p class="panel-kicker">Структура производства</p>
-                    <h2 id="dash-zones-title">Цехи и зоны</h2>
-                  </div>
-                  <span id="dash-load-state" class="live-badge"><i></i> Данные из БД</span>
-                </div>
-                <div id="dashboard-departments" class="department-grid"></div>
-              </section>
-
-              <div class="dashboard-side">
-                <aside class="dashboard-panel utilization-panel">
-                  <div class="panel-heading">
-                    <div>
-                      <p class="panel-kicker">Баланс смены</p>
-                      <h2>Работа / простой</h2>
-                    </div>
-                  </div>
-                  <div class="utilization-number">
-                    <strong id="dash-utilization">—</strong><span>%</span>
-                  </div>
-                  <div class="utilization-track" aria-hidden="true">
-                    <i id="dash-utilization-bar"></i>
-                  </div>
-                  <div class="utilization-legend">
-                    <span><i class="legend-work"></i>Работа <b id="dash-work">—</b></span>
-                    <span><i class="legend-idle"></i>Простой <b id="dash-idle">—</b></span>
-                  </div>
-                  <button type="button" class="dashboard-link" data-open-tab="stats">
-                    Открыть подробную статистику
-                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
-                  </button>
-                </aside>
-
-                <aside class="dashboard-panel ai-report">
-                  <div class="panel-heading">
-                    <div>
-                      <p class="panel-kicker">Анализ смены</p>
-                      <h2>ИИ отчёт</h2>
-                    </div>
-                  </div>
-                  <ul id="dashboard-ai-report" class="ai-report-list">
-                    <li>Загрузка сводки…</li>
-                  </ul>
-                </aside>
-              </div>
-            </div>
+            <div id="dashboard-board" class="widget-board" aria-label="Виджеты страницы"></div>
             </div>
           </div>
         </div>
@@ -174,17 +97,6 @@
                   </button>
                   <button id="add-camera-btn" type="button" class="btn btn-primary" data-i18n="addCamera">
                     Добавить камеру
-                  </button>
-                  <button id="sync-btn" type="button" class="btn btn-secondary" data-i18n="syncGo2rtc">
-                    Синхр. go2rtc
-                  </button>
-                  <button
-                    id="reload-faces-btn"
-                    type="button"
-                    class="btn btn-secondary"
-                    data-i18n="reloadFacesDb"
-                  >
-                    Обновить БД лиц
                   </button>
                 </div>
               </div>
@@ -852,22 +764,10 @@
           >
             Макс. качество
           </button>
-          <button
-            type="button"
-            id="package-detection-btn"
-            class="btn btn-secondary hidden"
-            data-i18n="packageDetectionOff"
-          >
-            Пакеты: выкл.
-          </button>
-          <button
-            type="button"
-            id="rod-pose-btn"
-            class="btn btn-secondary hidden"
-            data-i18n="rodPoseOff"
-          >
-            Ручка YOLO: выкл.
-          </button>
+          <div id="stream-ai-models" class="stream-ai-models hidden">
+            <button type="button" id="stream-ai-models-btn" class="btn btn-secondary">Модели ИИ</button>
+            <div id="stream-ai-models-menu" class="stream-ai-models-menu" hidden></div>
+          </div>
           <button
             type="button"
             id="sealer-roi-btn"
@@ -1082,13 +982,28 @@
       </div>
     </div>
 
+    <div id="widget-catalog" class="widget-catalog" hidden>
+      <div class="widget-catalog-card">
+        <div class="panel-heading">
+          <div>
+            <p class="panel-kicker">Эта страница</p>
+            <h2>Добавить виджет</h2>
+          </div>
+          <button id="widget-catalog-close" type="button" class="icon-btn" aria-label="Закрыть">×</button>
+        </div>
+        <div id="widget-catalog-list" class="widget-catalog-list"></div>
+        <button id="widget-catalog-reset" type="button" class="dashboard-link">Сбросить раскладку страницы</button>
+      </div>
+    </div>
+
     <script src="/roi.js?v=12" charset="UTF-8"></script>
     <script src="/rec-timeline.js?v=8" charset="UTF-8"></script>
+    <script src="/recordings-panel.js?v=1" charset="UTF-8"></script>
     <script src="/stats.js?v=12" charset="UTF-8"></script>
-    <script src="/dashboard.js?v=10" charset="UTF-8"></script>
-    <script src="/models.js?v=1" charset="UTF-8"></script>
+    <script src="/dashboard.js?v=14" charset="UTF-8"></script>
+    <script src="/models.js?v=2" charset="UTF-8"></script>
     <script src="/camera-form.js?v=1" charset="UTF-8"></script>
-    <script src="/app.js?v=50" charset="UTF-8"></script>
+    <script src="/app.js?v=55" charset="UTF-8"></script>
     <script src="/chat.js?v=1" charset="UTF-8"></script>
   </body>
 </html>

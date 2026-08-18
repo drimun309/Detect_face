@@ -128,7 +128,18 @@ class DepartmentStore:
                    COALESCE(rw.idle_seconds, 0),
                    COALESCE(rpd.person_seconds, 0),
                    COALESCE(sd.cycle_count, 0),
-                   COALESCE(pd.packed_count, 0)
+                   COALESCE(pd.packed_count, 0),
+                   COALESCE(
+                     CASE WHEN pzc.day_date = CAST(:today AS date)
+                          THEN pzc.current_workers END,
+                     0
+                   ),
+                   COALESCE(
+                     CASE WHEN pzc.day_date = CAST(:today AS date)
+                          THEN pzc.person_seconds END,
+                     pzd.person_seconds,
+                     0
+                   )
             FROM department_cameras dc
             LEFT JOIN roi_timers rt ON rt.camera_id = dc.camera_id
             LEFT JOIN roi_work rw
@@ -143,6 +154,10 @@ class DepartmentStore:
             LEFT JOIN package_roi_daily pd
               ON pd.camera_id = dc.camera_id
              AND pd.day_date = :today
+            LEFT JOIN people_zone_counters pzc ON pzc.camera_id = dc.camera_id
+            LEFT JOIN people_zone_daily pzd
+              ON pzd.camera_id = dc.camera_id
+             AND pzd.day_date = :today
             ORDER BY dc.department_name, dc.camera_name, rt.roi_index
             """
         ).bindparams(today=today)
@@ -174,9 +189,13 @@ class DepartmentStore:
             cameras[department_id].add(camera_id)
             if row[4]:
                 enabled_cameras[department_id].add(camera_id)
+            pz_workers = int(row[13] or 0)
+            pz_person_seconds = float(row[14] or 0)
             if camera_id not in counted_cameras:
                 department.cycles += int(row[11] or 0)
                 department.packages += int(row[12] or 0)
+                department.people_zone_workers += pz_workers
+                department.people_zone_person_seconds += pz_person_seconds
                 counted_cameras.add(camera_id)
 
             if row[5] is None:
@@ -193,6 +212,8 @@ class DepartmentStore:
                     work_seconds=work_seconds,
                     idle_seconds=idle_seconds,
                     person_seconds=person_seconds,
+                    people_zone_workers=pz_workers,
+                    people_zone_person_seconds=pz_person_seconds,
                 )
             )
             department.work_seconds += work_seconds
@@ -214,6 +235,10 @@ class DepartmentStore:
             work_seconds=sum(item.work_seconds for item in items),
             idle_seconds=sum(item.idle_seconds for item in items),
             person_seconds=sum(item.person_seconds for item in items),
+            people_zone_workers=sum(item.people_zone_workers for item in items),
+            people_zone_person_seconds=sum(
+                item.people_zone_person_seconds for item in items
+            ),
             cycles=sum(item.cycles for item in items),
             packages=sum(item.packages for item in items),
             departments=items,

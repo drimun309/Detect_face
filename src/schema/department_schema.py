@@ -29,6 +29,8 @@ class DashboardZoneSchema(BaseModel):
     work_seconds: float = 0
     idle_seconds: float = 0
     person_seconds: float = 0
+    people_zone_workers: int = 0
+    people_zone_person_seconds: float = 0
 
 
 class DashboardDepartmentSchema(BaseModel):
@@ -40,6 +42,8 @@ class DashboardDepartmentSchema(BaseModel):
     work_seconds: float = 0
     idle_seconds: float = 0
     person_seconds: float = 0
+    people_zone_workers: int = 0
+    people_zone_person_seconds: float = 0
     cycles: int = 0
     packages: int = 0
     zones: list[DashboardZoneSchema] = Field(default_factory=list)
@@ -54,6 +58,8 @@ class DashboardSummarySchema(BaseModel):
     work_seconds: float = 0
     idle_seconds: float = 0
     person_seconds: float = 0
+    people_zone_workers: int = 0
+    people_zone_person_seconds: float = 0
     cycles: int = 0
     packages: int = 0
     departments: list[DashboardDepartmentSchema] = Field(default_factory=list)

@@ -92,6 +92,8 @@
       streamQualityHint: "Смена разрешения…",
       packageDetectionOff: "Пакеты: выкл.",
       packageDetectionOn: "Пакеты: вкл.",
+      streamAiModels: "Модели ИИ",
+      streamAiModelsEmpty: "Нет включённых моделей",
       packageDetectionHint: "Переключение…",
       rodPoseOff: "Ручка YOLO: выкл.",
       rodPoseOn: "Ручка YOLO: вкл.",
@@ -183,6 +185,8 @@
       selectDate: "-- Сначала выберите камеру --",
       recordingsList: "Ролики",
       recSelectHint: "Выберите отдел, камеру и дату для просмотра записей",
+      recSelectCameraHint: "Выберите камеру в списке отдела слева",
+      recSelectDateHint: "Выберите дату — ниже появятся ролики",
       recPlay: "Смотреть",
       recPause: "Пауза",
       play: "Смотреть",
@@ -380,6 +384,8 @@
       streamQualityHint: "Changing resolution…",
       packageDetectionOff: "Packages: off",
       packageDetectionOn: "Packages: on",
+      streamAiModels: "AI models",
+      streamAiModelsEmpty: "No enabled models",
       packageDetectionHint: "Switching…",
       rodPoseOff: "Handle YOLO: off",
       rodPoseOn: "Handle YOLO: on",
@@ -474,6 +480,8 @@
       selectDate: "-- Select date --",
       recordingsList: "Files",
       recSelectHint: "Select department, camera and date to view recordings",
+      recSelectCameraHint: "Select a camera in the department list on the left",
+      recSelectDateHint: "Select a date to load recordings below",
       recPlay: "Play",
       recPause: "Pause",
       play: "Play",
@@ -1095,6 +1103,110 @@
   window.DF_onRodPoseChanged = function () {
     if (window.DF_updateSealerRoiControls) window.DF_updateSealerRoiControls();
   };
+
+  function closeStreamAiModelsMenu() {
+    const menu = document.getElementById("stream-ai-models-menu");
+    if (menu) menu.hidden = true;
+  }
+
+  async function loadStreamAiModels() {
+    const wrap = document.getElementById("stream-ai-models");
+    const menu = document.getElementById("stream-ai-models-menu");
+    const btn = document.getElementById("stream-ai-models-btn");
+    if (!wrap || !menu) return;
+    const show = currentUseAnnotated && !!currentCameraId;
+    wrap.classList.toggle("hidden", !show);
+    if (btn) btn.textContent = t("streamAiModels");
+    if (!show || !window.DF_models) {
+      menu.hidden = true;
+      menu.replaceChildren();
+      return;
+    }
+    try {
+      const models = (await window.DF_models.loadModels(false)).filter(function (model) {
+        return model.enabled;
+      });
+      const assigned = await request(API + "/cameras/" + currentCameraId + "/models");
+      const selected = new Set(
+        (assigned.items || []).map(function (item) { return Number(item.model_id); })
+      );
+      menu.replaceChildren();
+      if (!models.length) {
+        const empty = document.createElement("p");
+        empty.className = "stream-ai-models-empty";
+        empty.textContent = t("streamAiModelsEmpty");
+        menu.appendChild(empty);
+        return;
+      }
+      models.forEach(function (model) {
+        const row = document.createElement("label");
+        row.className = "stream-ai-models-item";
+        const box = document.createElement("input");
+        box.type = "checkbox";
+        box.value = String(model.id);
+        box.checked = selected.has(Number(model.id));
+        const text = document.createElement("span");
+        text.innerHTML = "<strong>" + model.name + "</strong><small>" + model.task + "</small>";
+        row.append(box, text);
+        box.addEventListener("change", function () {
+          saveStreamAiModels();
+        });
+        menu.appendChild(row);
+      });
+    } catch (err) {
+      menu.replaceChildren();
+      const empty = document.createElement("p");
+      empty.className = "stream-ai-models-empty";
+      empty.textContent = err.message;
+      menu.appendChild(empty);
+    }
+  }
+
+  async function saveStreamAiModels() {
+    if (!currentCameraId || !window.DF_models) return;
+    const menu = document.getElementById("stream-ai-models-menu");
+    if (!menu) return;
+    const ids = Array.from(menu.querySelectorAll("input[type=checkbox]:checked")).map(function (box) {
+      return Number(box.value);
+    });
+    try {
+      await window.DF_models.replaceCameraModels(currentCameraId, ids);
+      const models = await window.DF_models.loadModels(false);
+      const selected = models.filter(function (model) { return ids.indexOf(Number(model.id)) !== -1; });
+      const hasPackage = selected.some(function (model) { return model.task === "package"; });
+      const hasPose = selected.some(function (model) { return model.task === "pose"; });
+      let reconnect = false;
+      if (hasPackage !== packageDetectionEnabled) {
+        const data = await request(API + "/cameras/" + currentCameraId + "/package-detection", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ enabled: hasPackage }),
+        });
+        packageDetectionEnabled = !!(data && data.package_detection_enabled);
+        reconnect = true;
+      }
+      if (hasPose !== rodPoseEnabled) {
+        const data = await request(API + "/cameras/" + currentCameraId + "/rod-pose", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ enabled: hasPose }),
+        });
+        rodPoseEnabled = !!(data && data.rod_pose_enabled);
+        reconnect = true;
+      }
+      if (reconnect) {
+        isConnected = false;
+        shouldReconnect = true;
+        reconnectAttempt = 0;
+        setTimeout(function () { connectStream(); }, 800);
+        if (window.DF_onPackageDetectionChanged) window.DF_onPackageDetectionChanged();
+        if (window.DF_onRodPoseChanged) window.DF_onRodPoseChanged();
+      }
+    } catch (err) {
+      setStatus(err.message, true);
+      loadStreamAiModels();
+    }
+  }
 
   async function setPackageDetection(enabled) {
     if (!currentCameraId || !currentUseAnnotated) return;
@@ -2017,7 +2129,7 @@
         count: t("camerasCount", { n: cameras.length }),
         emptyText: t("statsNoCamerasInDept"),
         zones: cameras.map(function (cam) {
-          return { name: cam.name };
+          return { name: cam.name, camera_id: cam.id, roi_index: 0 };
         }),
       };
     });
@@ -2028,14 +2140,28 @@
         count: t("camerasCount", { n: grouped.noDept.length }),
         emptyText: t("statsNoCamerasInDept"),
         zones: grouped.noDept.map(function (cam) {
-          return { name: cam.name };
+          return { name: cam.name, camera_id: cam.id, roi_index: 0 };
         }),
       });
     }
-    window.DF_fillDeptNav(nav, items, camerasDeptFilter, function (id) {
-      camerasDeptFilter = id;
-      renderCamerasDeptNav();
-    });
+    window.DF_fillDeptNav(
+      nav,
+      items,
+      camerasDeptFilter,
+      function (id) {
+        camerasDeptFilter = id;
+        renderCamerasDeptNav();
+      },
+      {
+        onSelect: function (deptId, _zoneKey, zone) {
+          camerasDeptFilter = deptId;
+          renderCamerasDeptNav();
+          if (zone && zone.camera_id != null) {
+            openStream(zone.camera_id, zone.name || "cam", true);
+          }
+        },
+      }
+    );
     renderCamerasTable();
   }
 
@@ -2136,6 +2262,7 @@
     updateMaxQualityBtn();
     loadPackageDetectionState();
     loadRodPoseState();
+    loadStreamAiModels();
     loadStreamQualityState();
     window.dispatchEvent(new Event("resize"));
   }
@@ -2144,6 +2271,7 @@
     if (!streamModal) return;
     streamModal.classList.add("hidden");
     streamModal.setAttribute("aria-hidden", "true");
+    closeStreamAiModelsMenu();
     if (!cameraModal || cameraModal.classList.contains("hidden")) {
       document.body.style.overflow = "";
     }
@@ -2410,7 +2538,7 @@
     }
   });
 
-  reloadFacesBtn.addEventListener("click", async function () {
+  if (reloadFacesBtn) reloadFacesBtn.addEventListener("click", async function () {
     try {
       const res = await request(API + "/faces/reload-embeddings", { method: "POST" });
       setStatus(t("facesReloaded", { n: res.enrolled_faces }));
@@ -2420,7 +2548,7 @@
     }
   });
 
-  syncBtn.addEventListener("click", async function () {
+  if (syncBtn) syncBtn.addEventListener("click", async function () {
     try {
       await request(API + "/cameras/sync-go2rtc", { method: "POST" });
       setStatus(t("go2rtcSynced"));
@@ -2451,6 +2579,22 @@
   if (rodPoseBtn) {
     rodPoseBtn.addEventListener("click", function () {
       setRodPose(!rodPoseEnabled);
+    });
+  }
+
+  const aiModelsBtn = document.getElementById("stream-ai-models-btn");
+  const aiModelsMenu = document.getElementById("stream-ai-models-menu");
+  if (aiModelsBtn && aiModelsMenu) {
+    aiModelsBtn.addEventListener("click", function (event) {
+      event.stopPropagation();
+      if (aiModelsMenu.hidden) loadStreamAiModels().then(function () {
+        aiModelsMenu.hidden = false;
+      });
+      else aiModelsMenu.hidden = true;
+    });
+    document.addEventListener("click", function (event) {
+      const wrap = document.getElementById("stream-ai-models");
+      if (wrap && !wrap.contains(event.target)) closeStreamAiModelsMenu();
     });
   }
 
@@ -2531,535 +2675,6 @@
   }, 5000);
 })();
 
-(function () {
-  const API = "/api/v1";
-  const t = (key, vars) => window.DF_I18N.t(key, vars);
-
-  async function request(url, options) {
-    const res = await fetch(url, options);
-    if (!res.ok) throw new Error((await res.text()) || "HTTP " + res.status);
-    if (res.status === 204) return null;
-    return res.json();
-  }
-
-  function openModal() {
-    const m = document.getElementById("rec-player-modal");
-    if (!m) return;
-    m.classList.remove("hidden");
-    m.setAttribute("aria-hidden", "false");
-    document.body.style.overflow = "hidden";
-  }
-
-  function closeModal() {
-    const m = document.getElementById("rec-player-modal");
-    if (!m) return;
-    m.classList.add("hidden");
-    m.setAttribute("aria-hidden", "true");
-    document.body.style.overflow = "";
-  }
-
-  function recFmtTime(sec) {
-    if (!isFinite(sec) || sec < 0) return "00:00";
-    const total = Math.floor(sec);
-    const h = Math.floor(total / 3600);
-    const m = Math.floor((total % 3600) / 60);
-    const s = total % 60;
-    const mm = String(m).padStart(2, "0");
-    const ss = String(s).padStart(2, "0");
-    return h > 0 ? h + ":" + mm + ":" + ss : mm + ":" + ss;
-  }
-
-  window.DF_initRecordings = function () {
-    const tab = document.getElementById("tab-recordings");
-    if (!tab || tab.dataset.recReady === "1") return;
-    tab.dataset.recReady = "1";
-
-    const deptSelect = document.getElementById("rec-department-select");
-    const camSelect = document.getElementById("rec-camera-select");
-    const dateSelect = document.getElementById("rec-date-select");
-    const list = document.getElementById("rec-file-list");
-    const dayTimelineEl = document.getElementById("rec-day-timeline");
-    const video = document.getElementById("rec-video");
-    const title = document.getElementById("rec-player-title");
-    const prevBtn = document.getElementById("rec-prev-btn");
-    const nextBtn = document.getElementById("rec-next-btn");
-    const progress = document.getElementById("rec-progress");
-    const timeDisplay = document.getElementById("rec-time-display");
-    const playBtn = document.getElementById("rec-play-btn");
-
-    let currentFiles = [];
-    let currentIndex = -1;
-    let dayTimeline = null;
-    let allCameras = [];
-    let seeking = false;
-
-    if (!deptSelect || !camSelect || !dateSelect || !list) return;
-
-    function camerasForDepartment(deptValue) {
-      if (!deptValue) return [];
-      if (deptValue === "none") {
-        return allCameras.filter(function (cam) {
-          return !cam.department_id;
-        });
-      }
-      const deptId = Number(deptValue);
-      return allCameras.filter(function (cam) {
-        return cam.department_id === deptId;
-      });
-    }
-
-    function selectedCamName() {
-      return camSelect.options[camSelect.selectedIndex]?.dataset?.name || "";
-    }
-
-    function populateCameraSelect(preserveId) {
-      const deptValue = deptSelect.value;
-      camSelect.innerHTML = "";
-      const cameras = camerasForDepartment(deptValue);
-
-      if (!deptValue) {
-        camSelect.disabled = true;
-        const opt0 = document.createElement("option");
-        opt0.value = "";
-        opt0.textContent = t("statsSelectDepartmentFirst");
-        camSelect.appendChild(opt0);
-        return;
-      }
-
-      camSelect.disabled = false;
-      const opt0 = document.createElement("option");
-      opt0.value = "";
-      opt0.textContent = t("selectCamera");
-      camSelect.appendChild(opt0);
-
-      if (!cameras.length) {
-        const optEmpty = document.createElement("option");
-        optEmpty.value = "";
-        optEmpty.textContent = t("statsNoCamerasInDept");
-        optEmpty.disabled = true;
-        camSelect.appendChild(optEmpty);
-        camSelect.disabled = true;
-        return;
-      }
-
-      cameras.forEach(function (cam) {
-        const opt = document.createElement("option");
-        opt.value = String(cam.id);
-        opt.textContent = cam.id + " — " + cam.name;
-        opt.dataset.name = cam.name;
-        camSelect.appendChild(opt);
-      });
-
-      if (preserveId && cameras.some(function (c) { return String(c.id) === String(preserveId); })) {
-        camSelect.value = String(preserveId);
-      }
-    }
-
-    function bindDeptNav() {
-      if (!window.DF_fillDeptNav) return;
-      const items = Array.from(deptSelect.options)
-        .filter(function (opt) { return opt.value; })
-        .map(function (opt) {
-          return {
-            id: opt.value,
-            name: opt.dataset.name || opt.textContent,
-            count: opt.dataset.count || "",
-          };
-        });
-      window.DF_attachZones(items, function (withZones) {
-        window.DF_fillDeptNav(
-          document.getElementById("rec-dept-nav"),
-          withZones,
-          deptSelect.value,
-          function (id) {
-            if (deptSelect.value === id) return;
-            deptSelect.value = id;
-            bindDeptNav();
-            deptSelect.dispatchEvent(new Event("change"));
-          }
-        );
-      });
-    }
-
-    async function loadDepartments() {
-      const [deptData, camData] = await Promise.all([
-        request(API + "/departments"),
-        request(API + "/cameras"),
-      ]);
-      allCameras = camData.items || [];
-      const prevDept = deptSelect.value;
-      const prevCam = camSelect.value;
-
-      deptSelect.innerHTML = "";
-      (deptData.items || []).forEach(function (dept) {
-        const opt = document.createElement("option");
-        opt.value = String(dept.id);
-        opt.dataset.name = dept.name;
-        opt.dataset.count = t("camerasCount", { n: dept.camera_count });
-        opt.textContent = dept.name;
-        deptSelect.appendChild(opt);
-      });
-
-      if (prevDept && Array.from(deptSelect.options).some(function (o) { return o.value === prevDept; })) {
-        deptSelect.value = prevDept;
-      } else if (deptSelect.options.length) {
-        deptSelect.selectedIndex = 0;
-      }
-      populateCameraSelect(prevCam);
-      bindDeptNav();
-    }
-
-    function updateRecTime(preview) {
-      if (!video || !timeDisplay) return;
-      const cur = preview != null ? preview : video.currentTime || 0;
-      const dur = video.duration || 0;
-      timeDisplay.textContent = recFmtTime(cur) + " / " + recFmtTime(dur);
-    }
-
-    function updatePlayBtn() {
-      if (!playBtn || !video) return;
-      const playing = !video.paused && !video.ended;
-      playBtn.textContent = playing ? "❚❚" : "▶";
-      playBtn.title = playing ? t("recPause") : t("recPlay");
-    }
-
-    function resetPlayerUi() {
-      if (progress) {
-        progress.value = "0";
-        progress.max = "0";
-        progress.disabled = true;
-      }
-      updateRecTime(0);
-      updatePlayBtn();
-    }
-
-    if (video) {
-      video.addEventListener("loadedmetadata", function () {
-        if (progress) {
-          const dur = video.duration || 0;
-          progress.max = String(dur);
-          progress.disabled = !(dur > 0);
-          progress.value = "0";
-        }
-        updateRecTime(0);
-      });
-      video.addEventListener("timeupdate", function () {
-        if (!seeking && progress) {
-          progress.value = String(video.currentTime || 0);
-        }
-        updateRecTime();
-      });
-      video.addEventListener("play", updatePlayBtn);
-      video.addEventListener("pause", updatePlayBtn);
-      video.addEventListener("ended", updatePlayBtn);
-      video.addEventListener("click", function () {
-        if (video.paused) video.play().catch(function () {});
-        else video.pause();
-      });
-    }
-
-    if (progress) {
-      progress.addEventListener("input", function () {
-        seeking = true;
-        updateRecTime(parseFloat(progress.value) || 0);
-      });
-      progress.addEventListener("change", function () {
-        if (!video) return;
-        const tsec = parseFloat(progress.value) || 0;
-        video.currentTime = tsec;
-        seeking = false;
-        updateRecTime();
-      });
-    }
-
-    if (playBtn && video) {
-      playBtn.addEventListener("click", function () {
-        if (video.paused) video.play().catch(function () {});
-        else video.pause();
-      });
-    }
-
-    async function loadDates() {
-      const camId = camSelect.value;
-      const camName = selectedCamName();
-      if (!camId || !camName) {
-        dateSelect.disabled = true;
-        dateSelect.innerHTML = "<option value=\"\">" + t("selectDate") + "</option>";
-        list.innerHTML = "<p class=\"help-text\">" + t("recSelectHint") + "</p>";
-        return;
-      }
-      const dates = await request(API + "/recordings/" + camId + "/" + encodeURIComponent(camName) + "/dates");
-      dateSelect.disabled = false;
-      dateSelect.innerHTML = "";
-      const opt0 = document.createElement("option");
-      opt0.value = "";
-      opt0.textContent = "—";
-      dateSelect.appendChild(opt0);
-      dates.forEach(function (d) {
-        const opt = document.createElement("option");
-        opt.value = d;
-        opt.textContent = d;
-        dateSelect.appendChild(opt);
-      });
-    }
-
-    async function loadDayTimeline(camId, camName, date) {
-      if (!dayTimelineEl) return;
-      dayTimelineEl.innerHTML = "<p class=\"help-text\">" + t("loading") + "</p>";
-      try {
-        dayTimeline = await request(
-          API +
-            "/recordings/" +
-            camId +
-            "/" +
-            encodeURIComponent(camName) +
-            "/" +
-            encodeURIComponent(date) +
-            "/timeline"
-        );
-        dayTimeline.date = date;
-        dayTimelineEl.innerHTML = "";
-        if (window.DF_renderTimeline) {
-          window.DF_renderTimeline(
-            dayTimelineEl,
-            dayTimeline,
-            window.DF_DAY_VIEW_OPTS || { mode: "day", viewStartHour: 7, viewEndHour: 19 }
-          );
-        }
-      } catch (e) {
-        dayTimeline = null;
-        dayTimelineEl.innerHTML = "<p class=\"help-text\">" + e.message + "</p>";
-      }
-    }
-
-    async function loadFiles() {
-      const camId = camSelect.value;
-      const camName = selectedCamName();
-      const date = dateSelect.value;
-      if (!camId || !camName || !date) {
-        list.innerHTML = "<p class=\"help-text\">" + t("recSelectHint") + "</p>";
-        if (dayTimelineEl) {
-          dayTimelineEl.innerHTML = "<p class=\"help-text\">" + t("recTimelineDayHint") + "</p>";
-        }
-        dayTimeline = null;
-        return;
-      }
-      await loadDayTimeline(camId, camName, date);
-      const files = await request(
-        API + "/recordings/" + camId + "/" + encodeURIComponent(camName) + "/" + encodeURIComponent(date)
-      );
-      currentFiles = files || [];
-      currentIndex = -1;
-      if (!files.length) {
-        list.innerHTML = "<p class=\"help-text\">(пусто)</p>";
-        updateNavButtons();
-        return;
-      }
-      list.innerHTML = "";
-      files.forEach(function (f) {
-        const row = document.createElement("div");
-        row.className = "rec-item";
-        const head = document.createElement("div");
-        head.className = "rec-item-head";
-        const left = document.createElement("div");
-        const nm = document.createElement("div");
-        nm.className = "rec-item-title";
-        nm.textContent = f.filename;
-        const meta = document.createElement("div");
-        meta.className = "rec-item-meta";
-        let metaTxt = f.size ? Math.round(f.size / 1024 / 1024) + " MB" : "";
-        if (f.start_ts && f.end_ts) {
-          metaTxt +=
-            (metaTxt ? " · " : "") +
-            new Date(f.start_ts * 1000).toLocaleTimeString() +
-            " – " +
-            new Date(f.end_ts * 1000).toLocaleTimeString();
-        } else if (f.mtime) {
-          metaTxt += (metaTxt ? " · " : "") + new Date(f.mtime * 1000).toLocaleString();
-        }
-        meta.textContent = metaTxt;
-        left.appendChild(nm);
-        left.appendChild(meta);
-        const right = document.createElement("div");
-        right.className = "button-group";
-        const playBtn = document.createElement("button");
-        playBtn.type = "button";
-        playBtn.className = "btn btn-primary";
-        playBtn.textContent = t("play");
-        playBtn.addEventListener("click", function () {
-          openAtIndex(files.findIndex(function (x) { return x.filename === f.filename; }));
-        });
-        const delBtn = document.createElement("button");
-        delBtn.type = "button";
-        delBtn.className = "btn btn-danger";
-        delBtn.textContent = t("delete");
-        delBtn.addEventListener("click", async function () {
-          if (!confirm(t("delete") + " " + f.filename + "?")) return;
-          await request(
-            API +
-              "/recordings/" +
-              camId +
-              "/" +
-              encodeURIComponent(camName) +
-              "/" +
-              encodeURIComponent(date) +
-              "/" +
-              encodeURIComponent(f.filename),
-            { method: "DELETE" }
-          );
-          loadFiles().catch(function () {});
-        });
-        right.appendChild(playBtn);
-        right.appendChild(delBtn);
-        head.appendChild(left);
-        head.appendChild(right);
-        row.appendChild(head);
-
-        if (window.DF_renderTimelineCollapsible && f.start_ts && f.end_ts) {
-          (async function (rowEl, file) {
-            let clipTl = {
-              date: date,
-              range_start: file.start_ts,
-              range_end: file.end_ts,
-              shift: (dayTimeline && dayTimeline.shift) || { enabled: false },
-              zones: [],
-            };
-            try {
-              clipTl = await request(
-                API +
-                  "/recordings/" +
-                  camId +
-                  "/" +
-                  encodeURIComponent(camName) +
-                  "/" +
-                  encodeURIComponent(date) +
-                  "/timeline?from_ts=" +
-                  file.start_ts +
-                  "&to_ts=" +
-                  file.end_ts
-              );
-              clipTl.date = date;
-            } catch (_) {
-              if (dayTimeline && window.DF_filterTimeline) {
-                clipTl = window.DF_filterTimeline(
-                  dayTimeline,
-                  file.start_ts,
-                  file.end_ts
-                );
-                clipTl.date = date;
-                if (dayTimeline.shift) clipTl.shift = dayTimeline.shift;
-              }
-            }
-            window.DF_renderTimelineCollapsible(rowEl, clipTl, {
-              clipStart: file.start_ts,
-              clipEnd: file.end_ts,
-            });
-          })(row, f);
-        }
-
-        list.appendChild(row);
-      });
-      updateNavButtons();
-    }
-
-    function updateNavButtons() {
-      if (prevBtn) prevBtn.disabled = currentIndex <= 0;
-      if (nextBtn) nextBtn.disabled = currentIndex < 0 || currentIndex >= currentFiles.length - 1;
-    }
-
-    function openAtIndex(idx) {
-      if (!video) return;
-      const camId = camSelect.value;
-      const camName = selectedCamName();
-      const date = dateSelect.value;
-      if (!camId || !camName || !date) return;
-      if (!Array.isArray(currentFiles) || !currentFiles.length) return;
-      if (idx < 0 || idx >= currentFiles.length) return;
-
-      currentIndex = idx;
-      const f = currentFiles[currentIndex];
-      const url =
-        API +
-        "/recordings/" +
-        camId +
-        "/" +
-        encodeURIComponent(camName) +
-        "/" +
-        encodeURIComponent(date) +
-        "/" +
-        encodeURIComponent(f.filename) +
-        "/file";
-      if (title) title.textContent = camName + " · " + date + " · " + f.filename;
-      resetPlayerUi();
-      video.playbackRate = 1;
-      video.src = url;
-      video.load();
-      openModal();
-      video.play().catch(function () {});
-      updateNavButtons();
-    }
-
-    deptSelect.onchange = function () {
-      populateCameraSelect(null);
-      dateSelect.disabled = true;
-      dateSelect.innerHTML = "<option value=\"\">" + t("selectDate") + "</option>";
-      list.innerHTML = "<p class=\"help-text\">" + t("recSelectHint") + "</p>";
-      if (dayTimelineEl) {
-        dayTimelineEl.innerHTML = "<p class=\"help-text\">" + t("recTimelineDayHint") + "</p>";
-      }
-      dayTimeline = null;
-    };
-
-    camSelect.onchange = function () {
-      loadDates().then(loadFiles).catch(function (e) {
-        list.innerHTML = "<p class=\"help-text\">" + e.message + "</p>";
-      });
-    };
-    dateSelect.onchange = function () {
-      loadFiles().catch(function (e) {
-        list.innerHTML = "<p class=\"help-text\">" + e.message + "</p>";
-      });
-    };
-
-    const closeBtn = document.getElementById("rec-player-modal-close");
-    const back = document.getElementById("rec-player-modal-backdrop");
-    function closeRecModal() {
-      if (video) {
-        video.pause();
-        video.removeAttribute("src");
-        video.load();
-      }
-      resetPlayerUi();
-      closeModal();
-    }
-    if (closeBtn) closeBtn.onclick = closeRecModal;
-    if (back) back.onclick = closeRecModal;
-
-    document.querySelectorAll("[id^='rec-speed-btn']").forEach(function (b) {
-      b.addEventListener("click", function () {
-        const sp = Number(b.getAttribute("data-speed") || "1");
-        if (video) video.playbackRate = sp;
-      });
-    });
-
-    if (prevBtn) {
-      prevBtn.addEventListener("click", function () {
-        if (currentIndex > 0) openAtIndex(currentIndex - 1);
-      });
-    }
-    if (nextBtn) {
-      nextBtn.addEventListener("click", function () {
-        if (currentIndex >= 0 && currentIndex < currentFiles.length - 1) {
-          openAtIndex(currentIndex + 1);
-        }
-      });
-    }
-
-    loadDepartments().catch(function (e) {
-      list.innerHTML = "<p class=\"help-text\">" + e.message + "</p>";
-    });
-  };
-})();
 
 (function () {
   const API = "/api/v1";
