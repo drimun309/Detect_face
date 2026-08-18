@@ -106,7 +106,9 @@ class _ModelWorker:
                 self._round_robin.append(camera_id)
             self._condition.notify()
 
-        if not task.done.wait(timeout=max(0.1, timeout)):
+        # timeout=0: queue GPU work and return the last boxes immediately so
+        # the encode loop never waits on inference (slow-mo / timestamp jumps).
+        if not task.done.wait(timeout=max(0.0, float(timeout))):
             return self._latest.get(camera_id), False
         if task.error is not None:
             raise task.error

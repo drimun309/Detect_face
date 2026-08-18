@@ -13,6 +13,9 @@ from urllib.parse import urlparse
 import cv2
 import numpy as np
 
+# Encode must not wait for GPU; boxes update on a later frame.
+_INFER_WAIT_SEC = 0.0
+
 from src.engine.fr_onnx_engine import FrOnnxEngine
 from src.engine.person_engine_factory import PersonDetector
 from src.services.face_embedding_store import FaceEmbeddingStore
@@ -274,6 +277,7 @@ class FaceAnnotatedStreamer:
                 self.config.frame_interval,
                 rgb,
                 {"conf": self.config.det_conf, "nms": self.config.det_nms},
+                timeout=_INFER_WAIT_SEC,
             )
             if result is None:
                 return [], [], [], [], [], executed
@@ -313,6 +317,7 @@ class FaceAnnotatedStreamer:
                     self.config.frame_interval,
                     rgb,
                     {"conf": self.config.det_conf, "nms": self.config.det_nms},
+                    timeout=_INFER_WAIT_SEC,
                 )
                 executed = executed or did_run
                 if result is not None:
@@ -362,6 +367,7 @@ class FaceAnnotatedStreamer:
                         "nms": self.config.det_nms,
                         "imgsz": self.config.package_det_imgsz,
                     },
+                    timeout=_INFER_WAIT_SEC,
                 )
                 executed = executed or did_run
                 if result is not None:
@@ -719,6 +725,7 @@ class FaceAnnotatedStreamer:
                             "conf": self.config.rod_pose_conf,
                             "imgsz": self.config.rod_pose_imgsz,
                         },
+                        timeout=_INFER_WAIT_SEC,
                     )
                     if candidate is not None:
                         det = candidate
@@ -1230,9 +1237,17 @@ class FaceAnnotatedStreamer:
         width, height = self.config.output_size
         bitrate, maxrate, bufsize = self._video_bitrate()
         ffmpeg = os.environ.get("FFMPEG_PATH", "ffmpeg")
+        fps = str(max(self.config.fps, 1))
+        gop = str(max(self.config.fps, 1))
         return [
             ffmpeg,
-            "-y",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-fflags",
+            "+genpts+nobuffer",
+            "-flags",
+            "low_delay",
             "-f",
             "rawvideo",
             "-vcodec",
@@ -1242,20 +1257,29 @@ class FaceAnnotatedStreamer:
             "-s",
             f"{width}x{height}",
             "-r",
-            str(self.config.fps),
+            fps,
             "-i",
             "-",
+            "-an",
             "-c:v",
             "libx264",
             "-preset",
             "ultrafast",
             "-tune",
             "zerolatency",
+            "-profile:v",
+            "baseline",
+            "-level",
+            "3.1",
+            "-x264-params",
+            "sliced-threads=0:sync-lookahead=0:rc-lookahead=0:repeat-headers=1:aud=1",
             "-g",
-            str(self.config.fps * 2),
+            gop,
             "-keyint_min",
-            str(self.config.fps * 2),
+            gop,
             "-sc_threshold",
+            "0",
+            "-bf",
             "0",
             "-b:v",
             bitrate,
@@ -1265,6 +1289,16 @@ class FaceAnnotatedStreamer:
             bufsize,
             "-pix_fmt",
             "yuv420p",
+            "-r",
+            fps,
+            "-vsync",
+            "1",
+            "-flush_packets",
+            "1",
+            "-muxdelay",
+            "0",
+            "-muxpreload",
+            "0",
             "-f",
             "rtsp",
             "-rtsp_transport",
@@ -1299,6 +1333,7 @@ class FaceAnnotatedStreamer:
             stdin=subprocess.PIPE,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
+            bufsize=0,
         )
         time.sleep(0.3)
         if self.ffmpeg_process.poll() is not None:
@@ -1326,8 +1361,10 @@ class FaceAnnotatedStreamer:
         return urls
 
     def _connect_rtsp(self) -> bool:
-        for url in self._input_urls():
-            if self._try_connect_rtsp(url):
+        urls = self._input_urls()
+        for index, url in enumerate(urls):
+            attempts = 8 if index == 0 and len(urls) > 1 else 40
+            if self._try_connect_rtsp(url, read_attempts=attempts):
                 log.info(
                     f"[cam {self.config.camera_id}] RTSP connected via {self._safe_url(url)}"
                 )
@@ -1375,6 +1412,7 @@ class FaceAnnotatedStreamer:
         width, height = self.config.output_size
         frame_interval = 1.0 / max(self.config.fps, 1)
         empty_reads = 0
+        next_frame_at = time.monotonic()
 
         while self.is_running:
             if not self.capture or not self.capture.isOpened():
@@ -1383,22 +1421,25 @@ class FaceAnnotatedStreamer:
                     time.sleep(1.0)
                     continue
 
-            latest = None
-            for _ in range(5):
-                ret, frame = self.capture.read()
-                if ret and frame is not None and frame.size > 0:
-                    latest = frame
-                else:
-                    break
-
-            if latest is None:
+            # Drain RTSP continuously. Sleeping between reads fills the TCP
+            # window and FFmpeg drops slices → horizontal macroblocks.
+            if not self.capture.grab():
                 empty_reads += 1
-                if empty_reads >= 15:
+                if empty_reads >= 40:
                     self._disconnect_rtsp()
                     empty_reads = 0
-                time.sleep(0.1)
+                time.sleep(0.005)
                 continue
             empty_reads = 0
+
+            now_mono = time.monotonic()
+            if now_mono < next_frame_at:
+                continue
+
+            ret, latest = self.capture.retrieve()
+            if not (ret and latest is not None and latest.size > 0):
+                continue
+            next_frame_at = now_mono + frame_interval
 
             resized = cv2.resize(latest, (width, height), interpolation=cv2.INTER_LINEAR)
             try:
@@ -1420,22 +1461,30 @@ class FaceAnnotatedStreamer:
                 self._ingest_count = 0
                 self._last_ingest_ts = now
 
-            # Read faster than target FPS so queue always has a fresh frame
-            time.sleep(frame_interval * 0.5)
-
     def _worker_loop(self) -> None:
-        """YOLO every N-th frame; on skips re-send last annotated (analiz scheme)."""
+        """YOLO on live frames; encode at a fixed fps so the player is not slow-mo."""
+        frame_interval = 1.0 / max(self.config.fps, 1)
+        next_tick = time.monotonic()
+        last_frame = None
         while self.is_running:
+            fresh = True
             try:
-                frame = self.frame_queue.get(timeout=0.1)
+                frame = self.frame_queue.get(timeout=0.02)
+                last_frame = frame
             except Empty:
+                frame = last_frame
+                fresh = False
+            if frame is None:
+                time.sleep(0.01)
                 continue
 
             self._frame_idx += 1
             interval_n = max(int(self.config.frame_interval), 1)
-            run_infer = self.inference_scheduler is not None or (
-                self._frame_idx % interval_n == 0
-            ) or self._last_annotated_frame is None
+            run_infer = fresh and (
+                self.inference_scheduler is not None
+                or (self._frame_idx % interval_n == 0)
+                or not self._last_boxes
+            )
 
             if run_infer:
                 try:
@@ -1445,12 +1494,8 @@ class FaceAnnotatedStreamer:
                     log.error(f"[cam {self.config.camera_id}] infer error: {exc}")
                     self.metrics["errors"] += 1
 
-                annotated = self._annotate(frame)
-                self._last_annotated_frame = annotated.copy()
-                frame_to_send = annotated
-            else:
-                # Do not draw stale boxes on a new frame — re-send last annotated
-                frame_to_send = self._last_annotated_frame
+            # Always encode the live frame; keep last boxes if this tick skipped infer.
+            frame_to_send = self._annotate(frame)
 
             now = time.time()
             elapsed_infer = now - self._last_infer_ts
@@ -1514,6 +1559,13 @@ class FaceAnnotatedStreamer:
                     f"dropped={self.metrics['dropped_frames']} "
                     f"interval={interval_n}"
                 )
+
+            next_tick += frame_interval
+            delay = next_tick - time.monotonic()
+            if delay > 0:
+                time.sleep(delay)
+            else:
+                next_tick = time.monotonic()
 
     def start(self) -> bool:
         if self.is_running:

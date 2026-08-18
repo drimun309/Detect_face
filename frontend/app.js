@@ -908,6 +908,8 @@
   let stallTimer = null;
   let stallLastTime = 0;
   let stallTicks = 0;
+  let mseMediaSource = null;
+  let mseObjectUrl = null;
   let useDirectGo2rtc = false;
   let currentStreamName = "";
   let currentCameraId = null;
@@ -1001,7 +1003,7 @@
       shouldReconnect = true;
       reconnectAttempt = 0;
       setTimeout(function () {
-        connectMp4();
+        connectStream();
       }, 800);
       applyStreamQualityPreset(
         currentStreamQualityPreset,
@@ -1115,7 +1117,7 @@
       shouldReconnect = true;
       reconnectAttempt = 0;
       setTimeout(function () {
-        connectMp4();
+        connectStream();
       }, 800);
     } catch (err) {
       setStatus(err.message, true);
@@ -1147,7 +1149,7 @@
       shouldReconnect = true;
       reconnectAttempt = 0;
       setTimeout(function () {
-        connectMp4();
+        connectStream();
       }, 800);
     } catch (err) {
       setStatus(err.message, true);
@@ -1186,7 +1188,7 @@
       shouldReconnect = true;
       reconnectAttempt = 0;
       setTimeout(function () {
-        connectMp4();
+        connectStream();
       }, 600);
     } catch (err) {
       setStatus(err.message, true);
@@ -1267,7 +1269,6 @@
     stopStallWatch();
     stallLastTime = streamVideo ? streamVideo.currentTime || 0 : 0;
     stallTicks = 0;
-    // go2rtc stream.mp4 часто «замирает» без onerror после обрыва ffmpeg/mediamtx
     stallTimer = setInterval(function () {
       if (!streamVideo || !shouldReconnect || !currentStreamName) return;
       if (streamVideo.paused) return;
@@ -1278,17 +1279,40 @@
         return;
       }
       stallTicks += 1;
-      if (stallTicks < 5) return;
+      if (stallTicks < 8) return;
       console.warn("[stream] stalled, reconnecting", currentStreamName);
       stallTicks = 0;
       isConnected = false;
       setStreamState("connecting");
-      connectMp4();
+      connectStream();
     }, 1000);
+  }
+
+  function cleanupMse() {
+    if (mseMediaSource) {
+      try {
+        if (mseMediaSource.readyState === "open") {
+          const buffers = mseMediaSource.sourceBuffers;
+          for (let i = buffers.length - 1; i >= 0; i--) {
+            try {
+              mseMediaSource.removeSourceBuffer(buffers[i]);
+            } catch (_) {}
+          }
+        }
+      } catch (_) {}
+      mseMediaSource = null;
+    }
+    if (mseObjectUrl) {
+      try {
+        URL.revokeObjectURL(mseObjectUrl);
+      } catch (_) {}
+      mseObjectUrl = null;
+    }
   }
 
   function cleanupPeer(keepVideo) {
     stopStallWatch();
+    cleanupMse();
     if (reconnectTimer) {
       clearTimeout(reconnectTimer);
       reconnectTimer = null;
@@ -1317,7 +1341,167 @@
     }
   }
 
-  /** MP4 через go2rtc/nginx — стабильнее WebRTC в Docker на Windows. */
+  function mseCodecs() {
+    const list = [
+      "avc1.640029",
+      "avc1.64002A",
+      "avc1.640033",
+      "avc1.42E01E",
+      "avc1.4D401F",
+    ];
+    if (typeof MediaSource === "undefined" || !MediaSource.isTypeSupported) {
+      return list.join();
+    }
+    return list
+      .filter(function (codec) {
+        return MediaSource.isTypeSupported('video/mp4; codecs="' + codec + '"');
+      })
+      .join();
+  }
+
+  function connectStream() {
+    if (typeof MediaSource !== "undefined") {
+      connectMse();
+      return;
+    }
+    connectMp4();
+  }
+
+  function connectMse() {
+    if (!currentStreamName || !streamVideo) return;
+    cleanupPeer(true);
+    shouldReconnect = true;
+    setStreamState("connecting");
+
+    const wsUrl =
+      (useDirectGo2rtc ? wsBaseDirect() : wsBaseViaNginx()) +
+      "?src=" +
+      encodeURIComponent(currentStreamName);
+
+    const mse = new MediaSource();
+    mseMediaSource = mse;
+    mseObjectUrl = URL.createObjectURL(mse);
+    streamVideo.srcObject = null;
+    streamVideo.src = mseObjectUrl;
+    streamVideo.muted = true;
+    streamVideo.playsInline = true;
+    streamVideo.playbackRate = 1;
+
+    let sourceBuffer = null;
+    let queue = [];
+    let mseRequested = false;
+
+    function requestMse() {
+      if (mseRequested || !ws || ws.readyState !== WebSocket.OPEN) return;
+      if (mse.readyState !== "open") return;
+      mseRequested = true;
+      try {
+        URL.revokeObjectURL(mseObjectUrl);
+      } catch (_) {}
+      ws.send(JSON.stringify({ type: "mse", value: mseCodecs() }));
+    }
+
+    function appendPending() {
+      if (!sourceBuffer || sourceBuffer.updating || queue.length === 0) return;
+      try {
+        sourceBuffer.appendBuffer(queue.shift());
+      } catch (err) {
+        console.warn("[MSE] append", err);
+      }
+    }
+
+    function trimPlayed() {
+      if (!sourceBuffer || sourceBuffer.updating || queue.length || !sourceBuffer.buffered.length) {
+        return;
+      }
+      try {
+        const start0 = sourceBuffer.buffered.start(0);
+        const end = sourceBuffer.buffered.end(sourceBuffer.buffered.length - 1);
+        const removeUntil = Math.min(streamVideo.currentTime - 0.5, end - 2);
+        if (removeUntil > start0 + 0.8) {
+          sourceBuffer.remove(start0, removeUntil);
+        }
+      } catch (_) {}
+    }
+
+    mse.addEventListener("sourceopen", requestMse, { once: true });
+
+    try {
+      ws = new WebSocket(wsUrl);
+    } catch (err) {
+      connectMp4();
+      return;
+    }
+    ws.binaryType = "arraybuffer";
+    ws.onopen = requestMse;
+    ws.onmessage = function (event) {
+      if (typeof event.data === "string") {
+        let msg;
+        try {
+          msg = JSON.parse(event.data);
+        } catch (_) {
+          return;
+        }
+        if (msg.type === "error") {
+          console.warn("[MSE] go2rtc", msg.value);
+          if (ws) ws.onclose = null;
+          if (!useDirectGo2rtc) {
+            useDirectGo2rtc = true;
+            connectMse();
+          } else {
+            connectMp4();
+          }
+          return;
+        }
+        if (msg.type !== "mse" || sourceBuffer || mse.readyState !== "open") return;
+        try {
+          sourceBuffer = mse.addSourceBuffer(msg.value);
+          sourceBuffer.mode = "segments";
+          sourceBuffer.addEventListener("updateend", function () {
+            if (queue.length) appendPending();
+            else trimPlayed();
+          });
+        } catch (err) {
+          console.warn("[MSE] sourceBuffer", err);
+          if (ws) ws.onclose = null;
+          connectMp4();
+          return;
+        }
+        isConnected = true;
+        reconnectAttempt = 0;
+        setStreamState("connected");
+        setStatus(t("connecting", { name: currentStreamName }));
+        streamVideo.play().catch(function (playErr) {
+          console.warn("[MSE] play blocked", playErr);
+          setStatus(t("autoplayBlocked"), true);
+        });
+        if (window.DF_onStreamVideoReady) window.DF_onStreamVideoReady();
+        return;
+      }
+      if (!sourceBuffer) return;
+      if (sourceBuffer.updating || queue.length) {
+        queue.push(event.data);
+        return;
+      }
+      try {
+        sourceBuffer.appendBuffer(event.data);
+      } catch (err) {
+        queue.push(event.data);
+        console.warn("[MSE] appendBuffer", err);
+      }
+    };
+    ws.onerror = function () {
+      if (!useDirectGo2rtc) useDirectGo2rtc = true;
+    };
+    ws.onclose = function () {
+      if (!shouldReconnect) return;
+      isConnected = false;
+      setStreamState("connecting");
+      scheduleReconnect();
+    };
+  }
+
+  /** Fallback: HTTP fMP4. Не seek — на live stream.mp4 это даёт чёрный экран и скачки. */
   function connectMp4() {
     if (!currentStreamName || !streamVideo) return;
     cleanupPeer(true);
@@ -1331,6 +1515,7 @@
     streamVideo.src = url;
     streamVideo.muted = true;
     streamVideo.playsInline = true;
+    streamVideo.playbackRate = 1;
     streamVideo.onloadeddata = function () {
       isConnected = true;
       reconnectAttempt = 0;
@@ -1376,7 +1561,7 @@
     const delay = RECONNECT_DELAYS[Math.min(reconnectAttempt, RECONNECT_DELAYS.length - 1)];
     reconnectTimer = setTimeout(function () {
       reconnectAttempt++;
-      connectMp4();
+      connectStream();
     }, delay);
   }
 
@@ -1989,7 +2174,7 @@
     setStreamState("connecting");
     setStatus(t("connecting", { name: currentStreamName }));
     const startView = function () {
-      connectMp4();
+      connectStream();
       refreshRecordingUi().catch(function () {});
     };
     if (useAnnotated) {

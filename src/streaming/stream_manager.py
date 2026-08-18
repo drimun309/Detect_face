@@ -401,7 +401,12 @@ class FaceStreamManager:
                 self.camera_store.get_sealer_roi_runtime(camera.id)
             )
         direct_rtsp = build_rtsp_url(camera)
-        go2rtc_rtsp = (
+        go2rtc_in = (
+            build_go2rtc_rtsp_url(camera, self.cfg.GO2RTC_RTSP_URL, suffix="_in")
+            if self.cfg.GO2RTC_RTSP_URL
+            else ""
+        )
+        go2rtc_main = (
             build_go2rtc_rtsp_url(camera, self.cfg.GO2RTC_RTSP_URL)
             if self.cfg.GO2RTC_RTSP_URL
             else ""
@@ -411,8 +416,8 @@ class FaceStreamManager:
         return FaceStreamerConfig(
             camera_id=camera.id,
             camera_name=camera.name,
-            rtsp_input_url=go2rtc_rtsp or direct_rtsp,
-            rtsp_fallback_url=direct_rtsp if go2rtc_rtsp else "",
+            rtsp_input_url=go2rtc_in or go2rtc_main or direct_rtsp,
+            rtsp_fallback_url=go2rtc_main or direct_rtsp,
             publish_url=f"{self.mediamtx_url}/annot_cam_{camera.id}",
             output_size=output_size,
             detection_mode=runtime.get("mode", self.cfg.DETECTION_MODE),

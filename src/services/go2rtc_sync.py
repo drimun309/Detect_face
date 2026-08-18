@@ -9,6 +9,7 @@ import yaml
 
 from src.schema.camera_schema import CameraSchema
 from src.utils.logger import get_logger
+from src.utils.rtsp import infer_substream_path
 
 log = get_logger()
 
@@ -86,10 +87,23 @@ def sync_go2rtc_config(
             continue
         raw_name = f"cam{camera.id}"
         annot_name = f"{raw_name}_annot"
-        streams[raw_name] = [
-            _build_rtsp_url(camera),
-            f"ffmpeg:{raw_name}#video=h264#hardware",
-        ]
+        camera_url = _build_rtsp_url(camera)
+        # Native copy only — Docker #hardware transcode corrupts H264 (macroblocks).
+        streams[raw_name] = [camera_url]
+        sub_path = infer_substream_path(camera.path or "")
+        if sub_path:
+            if camera.username and camera.password:
+                user = quote(camera.username, safe="")
+                password = quote(camera.password, safe="")
+                sub_url = (
+                    f"{camera.protocol}://{user}:{password}@"
+                    f"{camera.ip}:{camera.port}{sub_path}"
+                )
+            else:
+                sub_url = f"{camera.protocol}://{camera.ip}:{camera.port}{sub_path}"
+            streams[f"{raw_name}_in"] = [sub_url]
+        else:
+            streams[f"{raw_name}_in"] = [camera_url]
         streams[annot_name] = [f"{base}/annot_cam_{camera.id}"]
 
     path.write_text(
