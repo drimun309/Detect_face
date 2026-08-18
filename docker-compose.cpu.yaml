@@ -1,0 +1,13 @@
+# CPU-оверлей: без NVIDIA runtime, FR_PROVIDER=cpu.
+# docker compose -f docker-compose.stack.yaml -f docker-compose.cpu.yaml up -d --build
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: dockerfile.cpu.prod
+    runtime: !reset null
+    deploy: !reset null
+    environment:
+      - FR_PROVIDER=cpu
+      - LD_LIBRARY_PATH=

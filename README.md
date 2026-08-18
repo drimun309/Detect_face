@@ -49,12 +49,20 @@ cd vision-fr
 
 **Модели:** `assets/yoloxs_face.onnx`, `assets/w600k_mbf.onnx`, `assets/yolov8s.pt` (детекция человека, GPU через Ultralytics). Опционально ONNX: `yolo26n.onnx`. **buffalo_l** — `run_download_models.bat`.
 
-**GPU (RTX 3060):** стек собирается через `dockerfile.gpu.prod`, в `.env` укажите `FR_PROVIDER=gpu` и `PERSON_DET_ENGINE_PATH=assets/yolov8s.pt`. Нужен [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html).
+**GPU (RTX 3060):** backend собирается из `dockerfile.gpu.prod` на образе `pytorch/pytorch:2.5.1-cuda12.1-cudnn9-runtime` (Torch/CUDA уже внутри). В `.env` укажите `FR_PROVIDER=gpu` и `PERSON_DET_ENGINE_PATH=assets/yolov8s.pt`. Нужен [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html).
 
-Запуск:
+**CPU (без CUDA):** `dockerfile.cpu.prod` — Torch CPU + `onnxruntime`. Модели те же, инференс на процессоре.
+
+Запуск GPU:
 
 ```bash
 docker compose -f docker-compose.stack.yaml up -d --build
+```
+
+Запуск CPU:
+
+```bash
+docker compose -f docker-compose.stack.yaml -f docker-compose.cpu.yaml up -d --build
 ```
 
 - Веб-интерфейс: `http://localhost:8081`

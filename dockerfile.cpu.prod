@@ -1,6 +1,8 @@
-# Совместимость: CPU-сборка.
-# Канонический файл — dockerfile.cpu.prod
-# docker build -f dockerfile.onnx.prod -t detect_face-backend:cpu .
+# CPU backend: slim Python + Torch CPU + onnxruntime (без CUDA).
+# Образ заметно легче GPU-сборки, инференс только на CPU.
+#
+# docker build -f dockerfile.cpu.prod -t detect_face-backend:cpu .
+# Запуск стека: docker compose -f docker-compose.stack.yaml -f docker-compose.cpu.yaml up -d --build
 
 FROM python:3.10-slim
 

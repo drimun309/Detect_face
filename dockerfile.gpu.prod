@@ -1,65 +1,44 @@
-# usage: docker build -f dockerfile.gpu.prod -t detect_face-backend:gpu .
-# YOLOv8s (.pt) via Ultralytics + CUDA; face ONNX via onnxruntime-gpu.
-# Requires NVIDIA Container Toolkit on host.
+# GPU backend: официальный образ PyTorch + CUDA 12.1 / cuDNN 9.
+# Torch/CUDA уже внутри — не качаем 5+ ГБ nvidia-* wheels при каждой сборке.
+#
+# docker build -f dockerfile.gpu.prod -t detect_face-backend:gpu .
+# Нужен NVIDIA Container Toolkit. RTX 30xx / CUDA 12.x.
 
-FROM python:3.10-slim
+FROM pytorch/pytorch:2.5.1-cuda12.1-cudnn9-runtime
 
-# install debian dependencies (using Yandex mirror)
-RUN DEBIAN_FRONTEND=noninteractive \
-    echo 'deb http://mirror.yandex.ru/debian trixie main' > /etc/apt/sources.list && \
-    apt-get update && apt-get install -y --no-install-recommends \
-    curl wget ffmpeg libgl1 libglib2.0-0 \
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_DEFAULT_TIMEOUT=600 \
+    PIP_RETRIES=10 \
+    YOLO_AUTOINSTALL=False \
+    YOLOv5_AUTOINSTALL=False \
+    NVIDIA_VISIBLE_DEVICES=all \
+    NVIDIA_DRIVER_CAPABILITIES=compute,utility \
+    LD_LIBRARY_PATH=/opt/conda/lib/python3.11/site-packages/nvidia/cudnn/lib:/opt/conda/lib/python3.11/site-packages/nvidia/cublas/lib:/opt/conda/lib/python3.11/site-packages/nvidia/cuda_runtime/lib:/opt/conda/lib/python3.11/site-packages/nvidia/cufft/lib:/opt/conda/lib/python3.11/site-packages/nvidia/curand/lib:/opt/conda/lib/python3.11/site-packages/nvidia/cuda_nvrtc/lib:/opt/conda/lib/python3.11/site-packages/nvidia/cusolver/lib:/opt/conda/lib/python3.11/site-packages/nvidia/cusparse/lib:/opt/conda/lib/python3.11/site-packages/nvidia/nccl/lib
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ffmpeg libgl1 libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
-COPY ./requirements.gpu.prod.txt /tmp/requirements.txt
-ENV PIP_DEFAULT_TIMEOUT=600 PIP_RETRIES=10 PIP_DISABLE_PIP_VERSION_CHECK=1
-
-# Install PyTorch with retry loop (CUDA 12.1 for RTX 30xx series)
-RUN pip install --no-cache-dir --upgrade pip && \
-    for attempt in 1 2 3 4 5; do \
-        pip install --no-cache-dir --retries 5 --timeout 600 torch torchvision --index-url https://download.pytorch.org/whl/cu121 && exit 0 || true; \
-    done && exit 1
-
-# Install onnxruntime-gpu with CUDA 12.x support (version must be >=1.19 for CUDA 12.x + cuDNN 9)
-RUN pip install --no-cache-dir --retries 5 --timeout 600 "onnxruntime-gpu>=1.19.0" && \
-    pip install --no-cache-dir --retries 5 --timeout 600 ultralytics
-
-# Install remaining packages from requirements.txt (use mirror for reliability)
-RUN pip install --no-cache-dir --retries 5 --timeout 600 -r /tmp/requirements.txt \
-    -i https://pypi.tuna.tsinghua.edu.cn/simple \
-    --trusted-host pypi.tuna.tsinghua.edu.cn
-
-# NumPy 1.x ABI + headless OpenCV (imshow stubbed in src/utils/cv2_compat.py).
-# Force clean install: ultralytics may leave a broken cv2 namespace otherwise.
-RUN pip uninstall -y opencv-python opencv-python-headless opencv-contrib-python opencv-contrib-python-headless || true && \
-    pip install --no-cache-dir --force-reinstall --no-deps --retries 5 --timeout 600 \
-    "opencv-python-headless==4.9.0.80" && \
-    pip install --no-cache-dir --force-reinstall --no-deps --retries 5 --timeout 600 \
-    "numpy==1.26.4" && \
-    python -c "import cv2; assert hasattr(cv2, 'VideoCapture'), 'broken cv2'"
-
-ENV YOLO_AUTOINSTALL=False
-ENV YOLOv5_AUTOINSTALL=False
-
-RUN rm /tmp/requirements.txt
-
-# CUDA libs for onnxruntime-gpu (curand, cufft, cudart from nvidia-* pip wheels)
-ENV LD_LIBRARY_PATH=/usr/local/lib:/usr/local/lib/python3.10/site-packages/nvidia/cublas/lib:/usr/local/lib/python3.10/site-packages/nvidia/cudnn/lib:/usr/local/lib/python3.10/site-packages/nvidia/curand/lib:/usr/local/lib/python3.10/site-packages/nvidia/cufft/lib:/usr/local/lib/python3.10/site-packages/nvidia/cuda_runtime/lib:/usr/local/lib/python3.10/site-packages/nvidia/nccl/lib
-
-# Create symlinks for CUDA libraries so onnxruntime-gpu can find them
-RUN for dir in /usr/local/lib/python3.10/site-packages/nvidia/*/lib; do \
-        if [ -d "$dir" ]; then \
-            for lib in "$dir"/*.so*; do \
-                if [ -f "$lib" ] && [ ! -L "$lib" ]; then \
-                    base=$(basename "$lib" | sed 's/\.[0-9]*$//'); \
-                    ln -sf "$(basename $lib)" "$dir/$base.so" 2>/dev/null || true; \
-                fi; \
-            done; \
-        fi; \
-    done
-
-COPY . /app
-RUN mkdir -p /app/logs /app/tmp /app/data/backend
-
 WORKDIR /app
+
+COPY requirements.prod.txt /tmp/requirements.txt
+
+# onnxruntime-gpu без nvidia-* pip (CUDA/cuDNN уже в базовом образе)
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir --no-deps "onnxruntime-gpu>=1.19.0,<1.21" \
+    && pip install --no-cache-dir ultralytics \
+    && pip install --no-cache-dir -r /tmp/requirements.txt \
+    && pip uninstall -y opencv-python opencv-python-headless opencv-contrib-python opencv-contrib-python-headless || true \
+    && pip install --no-cache-dir --force-reinstall --no-deps "opencv-python-headless==4.9.0.80" \
+    && pip install --no-cache-dir --force-reinstall --no-deps "numpy==1.26.4" \
+    && python -c "import cv2, torch; assert hasattr(cv2, 'VideoCapture'); import onnxruntime as ort; print('torch', torch.__version__); print('ort', ort.get_available_providers())" \
+    && rm /tmp/requirements.txt
+
+COPY src /app/src
+COPY .project-root /app/.project-root
+
+RUN mkdir -p /app/logs /app/tmp /app/data/backend /app/assets
+
 CMD ["python", "src/main.py"]
